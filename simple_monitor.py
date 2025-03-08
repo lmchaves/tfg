@@ -20,6 +20,7 @@ from ryu.app import simple_switch_13
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
 from ryu.lib import hub
+from ryu.topology.api import get_switch, get_link
 
 class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
     OFP_VERSIONS = [4]  # OpenFlow 1.3 (la versión 4 corresponde a 1.3)
@@ -38,8 +39,64 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.monitor_interval = 1  
         # Para medir el delay usando mensajes echo
         self.echo_timestamps = {}  
+        
+        self.topology = {'switches': [], 'links': []}  # Topología de la red
+
         # Inicia el hilo de monitoreo
         self.monitor_thread = hub.spawn(self._monitor)
+
+    def get_network_snapshot(self):
+        """
+        Genera una instantánea del estado actual de la red.
+        Recorre cada datapath y, para cada puerto, obtiene las métricas:
+        - 'load' (carga del enlace)
+        - 'packet_loss' (tasa de pérdida de paquetes)
+        - 'delay' (retraso medido)
+        Devuelve un diccionario con la estructura:
+        { dpid: { port_no: { 'load': ..., 'packet_loss': ..., 'delay': ... }, ... }, ... }
+        """
+        snapshot = {}
+        for dpid in list(self.datapaths.keys()):  # Copia de las claves antes de iterar
+            snapshot[dpid] = {}
+            switches = topo_api.get_switch(self, dpid)
+            if not switches:
+                continue
+            switch = switches[0]
+            for port in switch.ports:
+                port_no = port.port_no
+                snapshot[dpid][port_no] = {
+                    'load': self.link_metrics.get(dpid, {}).get(port_no, {}).get('load', 0.0),
+                    'packet_loss': self.link_metrics.get(dpid, {}).get(port_no, {}).get('packet_loss', 0.0),
+                    'delay': self.link_metrics.get(dpid, {}).get(port_no, {}).get('delay', 0.0)
+                }
+        return snapshot
+
+    def get_topology_data(self):
+        """
+        Obtiene la topología de la red y la almacena en self.topology.
+        """
+        switches = get_switch(self, None)
+        self.topology['switches'] = [switch.dp.id for switch in switches]
+
+        links = get_link(self, None)
+        self.topology['links'] = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links]
+
+    def run_llbaco(self):
+        """
+        Ejecuta LLBACO con los datos de la red.
+        """
+        self.get_topology_data()
+        snapshot = self.get_network_snapshot()
+        nodes = self.topology['switches']
+        topology_links = self.topology['links']
+        delta = 0.5  # Ajusta según lo que prefieras
+
+        cost_matrix = build_cost_matrix(snapshot, nodes, topology_links, delta)
+
+        best_path, best_cost = run_aco_llbaco(cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5)
+
+        self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
+
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def _state_change_handler(self, ev):
