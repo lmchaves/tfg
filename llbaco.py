@@ -20,7 +20,7 @@ def initialize_ants(n_ants, n_nodes):
     """
     return np.random.randint(0, n_nodes, size=n_ants)
 
-def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n_nodes):
+def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n_nodes, high_cost):
     """
     Mueve las hormigas a través de los nodos basándose en las probabilidades que
     combinan la influencia de las feromonas y la heurística (inversa del costo).
@@ -32,6 +32,7 @@ def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n
             current = paths[ant, step-1]
             # Probabilidad basada en feromonas y heurística
             probs = (pheromones[current] ** alpha) * (inv_costs[current] ** beta)
+            probs[cost_matrix[current] >= high_cost] = 0
             # Excluir nodos ya visitados
             visited = paths[ant, :step]
             probs[visited] = 0
@@ -47,27 +48,37 @@ def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n
             pheromones[current, next_node] += del_tau
     return paths
 
-def run_aco_llbaco(cost_matrix, iterations=200, colony=100, alpha=2.0, beta=1.5, del_tau=1.0, rho=0.5):
+def run_aco_llbaco(cost_matrix, iterations=200, colony=100, alpha=2.0, beta=1.5, del_tau=1.0, rho=0.5, high_cost=1000):
     """
     Ejecuta el algoritmo ACO para optimizar una ruta (o ciclo) en la red,
     utilizando una matriz de costos derivada de las métricas de la red.
+    Ignora los enlaces con costo igual a high_cost al calcular el costo total.
     """
     n = cost_matrix.shape[0]
     inv_costs = inverse_costs(cost_matrix)
     pheromones = np.ones((n, n))
     best_path = None
     best_cost = float('inf')
+    
     for _ in range(iterations):
         positions = initialize_ants(colony, n)
-        paths = move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n)
+        paths = move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n, high_cost)
+        
         # Evaporación de feromonas
         pheromones *= (1 - rho)
+        
         for path in paths:
-            # Se suma el costo de cada enlace en el camino
-            cost = sum(cost_matrix[path[i], path[i+1]] for i in range(n-1))
+            # Calcular el costo total de la ruta, ignorando enlaces con costo high_cost
+            cost = 0
+            for i in range(n - 1):
+                if cost_matrix[path[i], path[i + 1]] < high_cost:  # Ignorar enlaces con costo high_cost
+                    cost += cost_matrix[path[i], path[i + 1]]
+            
+            # Actualizar la mejor ruta si el costo es menor
             if cost < best_cost:
                 best_cost = cost
                 best_path = path
+    
     return best_path, best_cost
 
 # --------------------------------------------------

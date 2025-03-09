@@ -104,7 +104,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
         # Ejecutar el algoritmo LLBACO
         best_path, best_cost = llbaco.run_aco_llbaco(
-            cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5
+        cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5, high_cost=1000
         )
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
