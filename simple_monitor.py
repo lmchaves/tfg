@@ -21,6 +21,9 @@ from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
 from ryu.lib import hub
 from ryu.topology.api import get_switch, get_link
+from ryu.topology import api as topo_api
+import llbaco
+
 
 class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
     OFP_VERSIONS = [4]  # OpenFlow 1.3 (la versión 4 corresponde a 1.3)
@@ -46,15 +49,12 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.monitor_thread = hub.spawn(self._monitor)
 
     def get_network_snapshot(self):
-        """
-        Genera una instantánea del estado actual de la red.
-        Recorre cada datapath y, para cada puerto, obtiene las métricas:
-        - 'load' (carga del enlace)
-        - 'packet_loss' (tasa de pérdida de paquetes)
-        - 'delay' (retraso medido)
-        Devuelve un diccionario con la estructura:
-        { dpid: { port_no: { 'load': ..., 'packet_loss': ..., 'delay': ... }, ... }, ... }
-        """
+        # Actualizar la topología de la red
+        self.get_topology_data()
+
+        print("Topology Links:", self.topology['links'])
+
+        # Generar el snapshot de métricas
         snapshot = {}
         for dpid in list(self.datapaths.keys()):  # Copia de las claves antes de iterar
             snapshot[dpid] = {}
@@ -64,11 +64,14 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             switch = switches[0]
             for port in switch.ports:
                 port_no = port.port_no
+                if port_no == 4294967294:  # Excluir el puerto virtual
+                    continue
                 snapshot[dpid][port_no] = {
                     'load': self.link_metrics.get(dpid, {}).get(port_no, {}).get('load', 0.0),
                     'packet_loss': self.link_metrics.get(dpid, {}).get(port_no, {}).get('packet_loss', 0.0),
                     'delay': self.link_metrics.get(dpid, {}).get(port_no, {}).get('delay', 0.0)
                 }
+        print("Snapshot generado:", snapshot) 
         return snapshot
 
     def get_topology_data(self):
@@ -81,19 +84,28 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         links = get_link(self, None)
         self.topology['links'] = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links]
 
-    def run_llbaco(self):
+    def run_llbaco(self, snapshot):
         """
         Ejecuta LLBACO con los datos de la red.
+        Recibe el snapshot como parámetro.
         """
-        self.get_topology_data()
-        snapshot = self.get_network_snapshot()
+        self.logger.info("Ejecutando LLBACO con la instantánea de métricas: %s", snapshot)
+
         nodes = self.topology['switches']
         topology_links = self.topology['links']
         delta = 0.5  # Ajusta según lo que prefieras
 
-        cost_matrix = build_cost_matrix(snapshot, nodes, topology_links, delta)
+        # Construir la matriz de costos
+        cost_matrix = llbaco.build_cost_matrix(snapshot, nodes, topology_links, delta)
 
-        best_path, best_cost = run_aco_llbaco(cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5)
+        self.logger.info("Matriz de costos:")
+        for row in cost_matrix:
+            self.logger.info(row)
+
+        # Ejecutar el algoritmo LLBACO
+        best_path, best_cost = llbaco.run_aco_llbaco(
+            cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5
+        )
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
 
@@ -105,10 +117,24 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             if datapath.id not in self.datapaths:
                 self.logger.info("Registrando datapath: %016x", datapath.id)
                 self.datapaths[datapath.id] = datapath
+
+                # Inicializar métricas para todos los puertos del switch
+                self.link_metrics[datapath.id] = {}
+                switches = topo_api.get_switch(self, datapath.id)
+                if switches:
+                    switch = switches[0]
+                    for port in switch.ports:
+                        self.link_metrics[datapath.id][port.port_no] = {
+                            'load': 0.0,
+                            'packet_loss': 0.0,
+                            'delay': 0.0
+                        }
         elif ev.state == DEAD_DISPATCHER:
             if datapath.id in self.datapaths:
                 self.logger.info("Eliminando datapath: %016x", datapath.id)
                 del self.datapaths[datapath.id]
+                if datapath.id in self.link_metrics:
+                    del self.link_metrics[datapath.id]
 
     def _monitor(self):
         while True:
@@ -116,6 +142,22 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             for dp in self.datapaths.values():
                 self._request_stats(dp)
                 self._send_echo_request(dp)
+
+            # Generar el snapshot
+            snapshot = self.get_network_snapshot()
+
+            # Depuración: Imprimir self.link_metrics
+            self.logger.info("Contenido de self.link_metrics:")
+            for dpid, ports in self.link_metrics.items():
+                self.logger.info("Switch %016x:", dpid)
+                for port, metrics in ports.items():
+                    self.logger.info("  Port %d: %s", port, metrics)
+
+            # Ejecutar LLBACO con el snapshot generado
+            if snapshot:  # Asegurarse de que el snapshot no esté vacío
+                self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
+
+            # Esperar antes de la siguiente iteración
             hub.sleep(self.monitor_interval)
 
     def _request_stats(self, datapath):
@@ -163,6 +205,14 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         for stat in body:
             port = stat.port_no
 
+            # Inicializar métricas si el puerto no está registrado
+            if port not in self.link_metrics[dpid]:
+                self.link_metrics[dpid][port] = {
+                    'load': 0.0,
+                    'packet_loss': 0.0,
+                    'delay': 0.0
+                }
+
             # Calcular Load
             if port in self.last_stats[dpid]:
                 prev_stat = self.last_stats[dpid][port]
@@ -179,8 +229,6 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             delay = self.link_metrics[dpid][port]['delay'] if port in self.link_metrics[dpid] else 0.0
 
             # Guardar métricas en el diccionario
-            if port not in self.link_metrics[dpid]:
-                self.link_metrics[dpid][port] = {}
             self.link_metrics[dpid][port]['load'] = load
             self.link_metrics[dpid][port]['packet_loss'] = packet_loss
             self.link_metrics[dpid][port]['delay'] = delay
