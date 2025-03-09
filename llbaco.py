@@ -87,43 +87,35 @@ def calculate_link_cost(delay, packet_loss, delta=0.5):
 def build_cost_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost=1000):
     """
     Construye una matriz de costos a partir de las métricas de la red.
-
-    Parámetros:
-      - snapshot: diccionario con métricas por nodo y puerto, por ejemplo:
-          { nodo: { puerto: {'load': ..., 'delay': ..., 'packet_loss': ...}, ... }, ... }
-      - nodes: lista ordenada de IDs de nodos (por ejemplo, switches) presentes.
-      - topology_links: lista de tuplas (src, dst, {'port': ...}) que representan enlaces en la red.
-      - delta: parámetro para ponderar el delay en la fórmula de costo.
-      - high_cost: costo asignado a enlaces sin datos (valor alto finito).
-    
-    Devuelve una matriz de costos (n x n). Si no se tienen datos para un enlace, se asigna high_cost.
     """
     n = len(nodes)
     # Inicializamos la matriz con high_cost
     cost_matrix = np.full((n, n), high_cost, dtype=float)
     
     for (src, dst, link_info) in topology_links:
-        # Si ambos nodos tienen datos en el snapshot...
+        print(f"Procesando enlace: {src} -> {dst}, Puerto: {link_info.get('port')}")
+        
         if src in snapshot and dst in snapshot:
             port = link_info.get('port')
-            # Si el puerto especificado existe en los datos de src:
             if port in snapshot[src]:
                 metrics = snapshot[src][port]
                 delay = metrics.get('delay', 0.0)
                 packet_loss = metrics.get('packet_loss', 0.0)
                 cost = calculate_link_cost(delay, packet_loss, delta)
+                print(f"Costo calculado para {src} -> {dst}: {cost}")
+                
                 i = nodes.index(src)
                 j = nodes.index(dst)
                 cost_matrix[i, j] = cost
                 cost_matrix[j, i] = cost  # Asumimos enlace simétrico
             else:
-                # Si no existe el puerto, dejamos high_cost
+                print(f"Puerto {port} no encontrado en el nodo {src}")
                 i = nodes.index(src)
                 j = nodes.index(dst)
                 cost_matrix[i, j] = high_cost
                 cost_matrix[j, i] = high_cost
         else:
-            # Si alguno de los nodos no está en el snapshot, se asigna high_cost
+            print(f"Nodo {src} o {dst} no encontrado en el snapshot")
             if src in nodes and dst in nodes:
                 i = nodes.index(src)
                 j = nodes.index(dst)
@@ -174,10 +166,3 @@ if __name__ == "__main__":
     best_path, best_cost = run_aco_llbaco(cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5)
     print("Best Path:", best_path)
     print("Best Cost:", best_cost)
-    
-    # Para visualizar (opcional)
-    coords = np.random.rand(len(nodes), 2) * 100
-    path_coords = coords[best_path]
-    plt.plot(path_coords[:, 0], path_coords[:, 1], marker='o')
-    plt.title(f"ACO LLBACO Solution (Cost: {best_cost:.2f})")
-    plt.show()
