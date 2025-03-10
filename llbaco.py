@@ -20,7 +20,7 @@ def initialize_ants(n_ants, n_nodes):
     """
     return np.random.randint(0, n_nodes, size=n_ants)
 
-def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n_nodes, high_cost):
+def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n_nodes, high_cost, cost_matrix):
     """
     Mueve las hormigas a través de los nodos basándose en las probabilidades que
     combinan la influencia de las feromonas y la heurística (inversa del costo).
@@ -32,7 +32,7 @@ def move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n
             current = paths[ant, step-1]
             # Probabilidad basada en feromonas y heurística
             probs = (pheromones[current] ** alpha) * (inv_costs[current] ** beta)
-            probs[cost_matrix[current] >= high_cost] = 0
+            probs[cost_matrix[current] >= high_cost] = 0  # Excluir enlaces con costo 1000
             # Excluir nodos ya visitados
             visited = paths[ant, :step]
             probs[visited] = 0
@@ -62,7 +62,7 @@ def run_aco_llbaco(cost_matrix, iterations=200, colony=100, alpha=2.0, beta=1.5,
     
     for _ in range(iterations):
         positions = initialize_ants(colony, n)
-        paths = move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n, high_cost)
+        paths = move_ants_on_costs(pheromones, inv_costs, positions, alpha, beta, del_tau, n, high_cost, cost_matrix)
         
         # Evaporación de feromonas
         pheromones *= (1 - rho)
