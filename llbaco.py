@@ -85,17 +85,39 @@ def run_aco_llbaco(cost_matrix, iterations=200, colony=100, alpha=2.0, beta=1.5,
 # Funciones para calcular el costo de un enlace
 # --------------------------------------------------
 
-def calculate_link_cost(delay, packet_loss, delta=0.5):
-    """
-    Calcula el costo de un enlace según la fórmula:
-    
-      Cost = delta * delay + (1 - delta) * packet_loss
-    
-    Puedes ajustar delta para darle mayor peso al delay o a la pérdida de paquetes.
-    """
-    return delta * delay + (1 - delta) * packet_loss
 
-def build_cost_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost=1000):
+# ocnsiderra la maxima de cada uninad y dividrilo por ello
+# llevar todo a valores de 0 y de 1
+####
+#def calculate_link_cost(load, delay, packet_loss, w_load=0.6, w_delay=0.2, w_packet_loss=0.2):
+    # Evita división por cero; podrías sumar una pequeña constante
+    #return w_load * (1/(load + 1e-6)) + w_delay * delay + w_packet_loss * packet_loss
+####
+
+def calculate_link_cost(load, delay, packet_loss,
+                        max_load, max_delay, max_packet_loss,
+                        w_load=0.6, w_delay=0.2, w_packet_loss=0.2):
+    """
+    Calcula el costo de un enlace normalizando cada métrica.
+
+    Parámetros:
+      - load: carga medida en el enlace.
+      - delay: retraso medido en el enlace.
+      - packet_loss: pérdida de paquetes en el enlace.
+      - max_load, max_delay, max_packet_loss: los valores máximos observados para cada métrica.
+      - w_load, w_delay, w_packet_loss: pesos asignados a cada métrica.
+
+    Devuelve:
+      - El costo del enlace, con cada métrica normalizada en [0, 1].
+    """
+    norm_load = load / max_load if max_load > 0 else 0
+    norm_delay = delay / max_delay if max_delay > 0 else 0
+    norm_packet_loss = packet_loss / max_packet_loss if max_packet_loss > 0 else 0
+    return w_load * norm_load + w_delay * norm_delay + w_packet_loss * norm_packet_loss
+
+
+def build_cost_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost=1000,
+                        max_load=1.0, max_delay=1.0, max_packet_loss=1.0):
     """
     Construye una matriz de costos a partir de las métricas de la red.
     """
@@ -110,9 +132,11 @@ def build_cost_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost=1000
             port = link_info.get('port')
             if port in snapshot[src]:
                 metrics = snapshot[src][port]
+                load = metrics.get('load', 0.0)
                 delay = metrics.get('delay', 0.0)
                 packet_loss = metrics.get('packet_loss', 0.0)
-                cost = calculate_link_cost(delay, packet_loss, delta)
+                cost = calculate_link_cost(load, delay, packet_loss, w_load=0.6, w_delay=0.2, w_packet_loss=0.2,
+                                           max_load=max_load, max_delay=max_delay, max_packet_loss=max_packet_loss)
                 print(f"Costo calculado para {src} -> {dst}: {cost}")
                 
                 i = nodes.index(src)

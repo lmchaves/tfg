@@ -45,6 +45,11 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         
         self.topology = {'switches': [], 'links': []}  # Topología de la red
 
+        self.max_load = 0.0
+        self.max_delay = 0.0
+        self.max_packet_loss = 0.0
+
+
         # Inicia el hilo de monitoreo
         self.monitor_thread = hub.spawn(self._monitor)
 
@@ -232,6 +237,14 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             self.link_metrics[dpid][port]['load'] = load
             self.link_metrics[dpid][port]['packet_loss'] = packet_loss
             self.link_metrics[dpid][port]['delay'] = delay
+
+            # Actualizar los máximos observados
+            if load > self.max_load:
+                self.max_load = load
+            if delay > self.max_delay:
+                self.max_delay = delay
+            if packet_loss > self.max_packet_loss:
+                self.max_packet_loss = packet_loss
 
             # Imprimir métricas en formato claro
             self.logger.info("%6d   %8.6f   %10.3f   %14.6f", port, load, delay * 1000, packet_loss * 100)
