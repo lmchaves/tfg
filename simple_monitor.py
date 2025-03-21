@@ -23,6 +23,7 @@ from ryu.lib import hub
 from ryu.topology.api import get_switch, get_link
 from ryu.topology import api as topo_api
 import llbaco
+import requests
 
 
 class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
@@ -161,6 +162,12 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             # Ejecutar LLBACO con el snapshot generado
             if snapshot:  # Asegurarse de que el snapshot no esté vacío
                 self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
+
+            # Enviar snapshot a Flask
+            try:
+                requests.post("http://127.0.0.1:5000/update", json=snapshot)
+            except Exception as e:
+                self.logger.error("Error enviando datos a Flask: %s", e)
 
             # Esperar antes de la siguiente iteración
             hub.sleep(self.monitor_interval)

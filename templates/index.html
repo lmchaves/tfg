@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualización SDN</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        svg { border: 1px solid black; }
+        .link { stroke: #999; stroke-width: 2px; }
+        .node { fill: steelblue; stroke: white; stroke-width: 2px; cursor: pointer; }
+        .highlight { stroke: red; stroke-width: 4px; }
+    </style>
+</head>
+<body>
+    <h2>Visualización de la Red SDN</h2>
+    <svg width="600" height="400"></svg>
+
+    <script>
+        const socket = io.connect('http://127.0.0.1:5000');
+        let svg = d3.select("svg");
+        
+        function drawNetwork(data) {
+            svg.selectAll("*").remove();
+            let nodes = data.switches.map(d => ({ id: d }));
+            let links = data.links;
+            
+            let simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-400))
+                .force("center", d3.forceCenter(300, 200));
+
+            let link = svg.selectAll(".link")
+                .data(links)
+                .enter().append("line")
+                .attr("class", "link")
+                .attr("stroke-width", d => d.load * 10); // Grosor depende de la carga
+
+            let node = svg.selectAll(".node")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("class", "node")
+                .attr("r", 20);
+
+            simulation.on("tick", function() {
+                link.attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                
+                node.attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+            });
+
+            // Resaltar la mejor ruta
+            if (data.best_path.length > 0) {
+                link.filter(d => data.best_path.includes(d.src) && data.best_path.includes(d.dst))
+                    .classed("highlight", true);
+            }
+        }
+
+        function fetchData() {
+            fetch('/topology')
+                .then(response => response.json())
+                .then(data => drawNetwork(data));
+        }
+
+        socket.on('update_topology', function(data) {
+            drawNetwork(data);
+        });
+
+        fetchData();
+        setInterval(fetchData, 5000);
+    </script>
+</body>
+</html>
