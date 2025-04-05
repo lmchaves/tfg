@@ -7,6 +7,8 @@ from mininet.log import setLogLevel, info
 from mininet.link import TCLink
 from mininet.util import dumpNodeConnections
 import logging
+import time
+import random
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,7 +39,10 @@ def topologia():
     h1 = net.addHost('h1', cls=Host, ip='212.18.0.1', defaultRoute=None)
 
     info('* Agregar conexiones\n')
-    bd = {'bw': 10, 'delay': '5'}
+    #bd = {'bw': 10, 'delay': '5'}
+
+    # Para simular que se produce perdida de paquetes
+    bd = {'bw': 10, 'delay': '5ms', 'loss': 40}  # 5% de pérdida de paquetes
     net.addLink(h7, s4, cls=TCLink, **bd)
     net.addLink(h8, s4, cls=TCLink, **bd)
     net.addLink(h1, s1, cls=TCLink, **bd)
@@ -75,18 +80,21 @@ def topologia():
     dumpNodeConnections(net.switches)
 
     
-    # Después de levantar la red y antes de llamar a CLI(net)
-    logging.info("Generando tráfico intenso...")
+    # Esperar antes de generar tráfico
+    logging.info("Esperando 5 segundos antes de iniciar el tráfico...")
+    time.sleep(5)
 
-    # Iniciar un servidor iperf en h1 (o el host que elijas como servidor)
-    h1 = net.get('h1')
-    h1.cmd('iperf -s -i 1 &')
+    logging.info("Generando tráfico intenso con iperf...")
 
-    # Lanzar múltiples clientes iperf desde los demás hosts hacia h1
+    # Iniciar el servidor iperf en h1
+    h1.cmd('iperf -s -u -i 1 &')
+
+    # Generar tráfico desde todos los hosts hacia h1 con diferentes anchos de banda
     for host_name in ['h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8']:
         host = net.get(host_name)
-        # -t: duración en segundos, -P: número de flujos paralelos
-        host.cmd('iperf -c 212.18.0.1 -t 60 -P 30 &')
+        bandwidth = random.randint(50, 100)  # Genera un valor aleatorio entre 50M y 100M
+        logging.info(f"{host_name} enviando tráfico de {bandwidth} Mbps a h1")
+        host.cmd(f'iperf -c 212.18.0.1 -u -b {bandwidth}M -t 60 -P 30 &')
 
     # Mantener la CLI abierta
     logging.info("Accediendo a la CLI de Mininet. Puede interactuar con la red...")

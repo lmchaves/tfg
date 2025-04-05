@@ -23,6 +23,7 @@ from ryu.lib import hub
 from ryu.topology.api import get_switch, get_link
 from ryu.topology import api as topo_api
 import llbaco
+import numpy as np
 import requests
 
 
@@ -40,7 +41,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ancho de banda en bits por segundo (ejemplo: 10 Mbps)
         self.bw = 10 * 1e6  
         # Intervalo de monitoreo en segundos
-        self.monitor_interval = 1  
+        self.monitor_interval =2
         # Para medir el delay usando mensajes echo
         self.echo_timestamps = {}  
         
@@ -114,6 +115,34 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         )
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
+        return best_path
+
+    def build_data_for_flask(self, snapshot, best_path=None):
+        data = {
+            "switches": self.topology["switches"],  # p.ej. [1,2,3,4,...]
+            "links": [],
+            "best_path": best_path.tolist() if isinstance(best_path, np.ndarray) else (best_path if best_path is not None else [])
+        }
+        for (src_dpid, dst_dpid, link_info) in self.topology["links"]:
+            port = link_info['port']
+            # Buscamos la métrica en el snapshot del src_dpid
+            load = 0.0
+            delay = 0.0
+            packet_loss = 0.0
+            if src_dpid in snapshot and port in snapshot[src_dpid]:
+                load = snapshot[src_dpid][port]['load']
+                delay = snapshot[src_dpid][port]['delay']
+                packet_loss = snapshot[src_dpid][port]['packet_loss']
+
+            data["links"].append({
+                "src": src_dpid,
+                "dst": dst_dpid,
+                "load": load,
+                "delay": delay,
+                "packet_loss": packet_loss
+            })
+        return data
+
 
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
@@ -161,13 +190,14 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
             # Ejecutar LLBACO con el snapshot generado
             if snapshot:  # Asegurarse de que el snapshot no esté vacío
-                self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
+                best_path = self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
+                #data_for_flask = self.build_data_for_flask(snapshot, best_path)
 
             # Enviar snapshot a Flask
-            try:
-                requests.post("http://127.0.0.1:5000/update", json=snapshot)
-            except Exception as e:
-                self.logger.error("Error enviando datos a Flask: %s", e)
+            #try:
+            #    requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
+            #except Exception as e:
+            #    self.logger.error("Error enviando datos a Flask: %s", e)
 
             # Esperar antes de la siguiente iteración
             hub.sleep(self.monitor_interval)
