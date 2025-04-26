@@ -41,7 +41,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ancho de banda en bits por segundo (ejemplo: 10 Mbps)
         self.bw = 10 * 1e6  
         # Intervalo de monitoreo en segundos
-        self.monitor_interval =2
+        self.monitor_interval =10
         # Para medir el delay usando mensajes echo
         self.echo_timestamps = {}  
         
@@ -54,6 +54,16 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
         # Inicia el hilo de monitoreo
         self.monitor_thread = hub.spawn(self._monitor)
+
+        #### Pérdida de paquetes #######
+
+        # Diccionario para guardar las conexiones entre puertos { (dpid, port): (peer_dpid, peer_port) }
+        self.link_peers = {}
+        # Estadísticas previas de tx y rx
+        self.prev_tx = {}  # { (dpid, port): tx_packets }
+        self.prev_rx = {}  # { (dpid, port): rx_packets }
+
+
 
     def get_network_snapshot(self):
         # Actualizar la topología de la red
@@ -191,13 +201,13 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             # Ejecutar LLBACO con el snapshot generado
             if snapshot:  # Asegurarse de que el snapshot no esté vacío
                 best_path = self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
-                #data_for_flask = self.build_data_for_flask(snapshot, best_path)
+                data_for_flask = self.build_data_for_flask(snapshot, best_path)
 
             # Enviar snapshot a Flask
-            #try:
-            #    requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
-            #except Exception as e:
-            #    self.logger.error("Error enviando datos a Flask: %s", e)
+            try:
+                requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
+            except Exception as e:
+                self.logger.error("Error enviando datos a Flask: %s", e)
 
             # Esperar antes de la siguiente iteración
             hub.sleep(self.monitor_interval)
@@ -288,8 +298,6 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
             # Actualizar los últimos datos de este puerto
             self.last_stats[dpid][port] = stat
-
-
 
 if __name__ == '__main__':
     from ryu.cmd import manager

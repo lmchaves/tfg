@@ -39,10 +39,9 @@ def topologia():
     h1 = net.addHost('h1', cls=Host, ip='212.18.0.1', defaultRoute=None)
 
     info('* Agregar conexiones\n')
-    #bd = {'bw': 10, 'delay': '5'}
 
     # Para simular que se produce perdida de paquetes
-    bd = {'bw': 10, 'delay': '5ms', 'loss': 40}  # 5% de pérdida de paquetes
+    bd = {'bw': 10, 'delay': '5ms', 'loss': 40}  # 40% de pérdida de paquetes
     net.addLink(h7, s4, cls=TCLink, **bd)
     net.addLink(h8, s4, cls=TCLink, **bd)
     net.addLink(h1, s1, cls=TCLink, **bd)

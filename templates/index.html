@@ -15,22 +15,26 @@
 </head>
 <body>
   <h2>Visualización de la Red SDN</h2>
+
+  <div id="snapshot-counter" style="font-weight: bold; font-size: 16px; margin-bottom: 10px;">
+    Instantánea: 0
+  </div>
+  
   <svg width="600" height="400"></svg>
 
   <script>
-    // Conectar a Socket.IO en Flask
     const socket = io.connect('http://127.0.0.1:5000');
     const svg = d3.select("svg");
+    let nodes = [];
+    let links = [];
+    let linkElements, nodeElements, labelElements;
+    let simulation;
 
-    function drawNetwork(data) {
-      svg.selectAll("*").remove();
-
-      // Crear nodos a partir de los switches
-      let nodes = data.switches.map(d => ({ id: d }));
+    function initializeNetwork(data) {
+      nodes = data.switches.map(d => ({ id: d }));
       let nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-      // Crear enlaces usando la información de "links"
-      let links = data.links.map(l => ({
+      links = data.links.map(l => ({
         source: nodeMap.get(l.src),
         target: nodeMap.get(l.dst),
         load: l.load,
@@ -38,24 +42,24 @@
         packet_loss: l.packet_loss
       }));
 
-      const simulation = d3.forceSimulation(nodes)
+      simulation = d3.forceSimulation(nodes)
         .force("link", d3.forceLink(links).id(d => d.id).distance(100))
         .force("charge", d3.forceManyBody().strength(-400))
         .force("center", d3.forceCenter(300, 200));
 
-      const link = svg.selectAll(".link")
+      linkElements = svg.selectAll(".link")
         .data(links)
         .enter().append("line")
         .attr("class", "link")
         .attr("stroke-width", d => d.load * 10);
 
-      const node = svg.selectAll(".node")
+      nodeElements = svg.selectAll(".node")
         .data(nodes)
         .enter().append("circle")
         .attr("class", "node")
         .attr("r", 20);
 
-      const label = svg.selectAll(".label")
+      labelElements = svg.selectAll(".label")
         .data(nodes)
         .enter().append("text")
         .attr("class", "label")
@@ -65,46 +69,49 @@
         .attr("dy", 5);
 
       simulation.on("tick", () => {
-        link.attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+        linkElements
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
 
-        node.attr("cx", d => d.x)
-            .attr("cy", d => d.y);
+        nodeElements
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
 
-        label.attr("x", d => d.x)
-             .attr("y", d => d.y);
+        labelElements
+          .attr("x", d => d.x)
+          .attr("y", d => d.y);
       });
-
-      // Resaltar la mejor ruta, si se proporciona
-      if (data.best_path && data.best_path.length > 0) {
-        link.filter(d => {
-          // Resalta los enlaces que conectan switches consecutivos de la ruta óptima.
-          let idxSource = data.best_path.indexOf(d.source.id.toString());
-          let idxTarget = data.best_path.indexOf(d.target.id.toString());
-          return idxSource !== -1 && idxTarget !== -1 && Math.abs(idxSource - idxTarget) === 1;
-        }).classed("highlight", true);
-      }
     }
 
-    function fetchData() {
-      fetch('/topology')
-        .then(response => response.json())
-        .then(data => {
-          console.log("Datos recibidos:", data);
-          drawNetwork(data);
-        })
-        .catch(err => console.error("Error al obtener datos:", err));
+    function highlightBestPath(bestPath) {
+      if (!bestPath || bestPath.length === 0) return;
+
+      const pathSet = new Set(bestPath.map(String));  // Convertir todo a strings
+
+      linkElements.classed("highlight", d => {
+        const srcId = d.source.id.toString();
+        const dstId = d.target.id.toString();
+
+        const idxSource = bestPath.indexOf(srcId);
+        const idxTarget = bestPath.indexOf(dstId);
+
+        return idxSource !== -1 && idxTarget !== -1 && Math.abs(idxSource - idxTarget) === 1;
+      });
     }
+
 
     socket.on('update_topology', function(data) {
-      drawNetwork(data);
+      highlightBestPath(data.best_path.map(x => x.toString()));  // Asegurarse que IDs son strings
     });
 
-    // Llamada inicial y actualización cada 5 segundos
-    fetchData();
-    setInterval(fetchData, 5000);
+    fetch('/topology')
+      .then(response => response.json())
+      .then(data => {
+        initializeNetwork(data);
+      });
   </script>
+
 </body>
 </html>
