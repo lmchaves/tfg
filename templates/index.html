@@ -16,9 +16,11 @@
 <body>
   <h2>Visualización de la Red SDN</h2>
 
-  <div id="snapshot-counter" style="font-weight: bold; font-size: 16px; margin-bottom: 10px;">
-    Instantánea: 0
+
+  <div id="best-path-display" style="font-size: 1.1em; margin-bottom: 10px;">
+    Ruta óptima: —
   </div>
+  
   
   <svg width="600" height="400"></svg>
 
@@ -86,31 +88,82 @@
     }
 
     function highlightBestPath(bestPath) {
-      if (!bestPath || bestPath.length === 0) return;
+      // Agrega logs para ver los datos de entrada
+      console.log("### HighlightBestPath llamado con bestPath:", bestPath, " Tipo:", typeof bestPath, " Contenido:", bestPath);
 
-      const pathSet = new Set(bestPath.map(String));  // Convertir todo a strings
+      if (!bestPath || bestPath.length === 0) {
+        console.log("### No hay ruta óptima o está vacía. Limpiando resaltado.");
+        // Asegurarse de quitar el resaltado si no hay ruta
+        linkElements.classed("highlight", false); 
+        return;
+      }
+
+      // Crear un Set de pares consecutivos para fácil lookup
+      const pathPairs = new Set();
+      for (let i = 0; i < bestPath.length - 1; i++) {
+        // Asegurarse de que estamos trabajando con strings para la clave del Set
+        const pair = bestPath[i].toString() + '-' + bestPath[i+1].toString();
+        const reversePair = bestPath[i+1].toString() + '-' + bestPath[i].toString();
+        pathPairs.add(pair);
+        pathPairs.add(reversePair);  // Bidireccional, por si las aristas no tienen dirección
+        console.log(`### Añadiendo pares a pathPairs: ${pair}, ${reversePair}`);
+      }
+      console.log("### pathPairs Set:", pathPairs);
+
 
       linkElements.classed("highlight", d => {
         const srcId = d.source.id.toString();
         const dstId = d.target.id.toString();
+        const linkPair = srcId + '-' + dstId;
+        const linkReversePair = dstId + '-' + srcId;
 
-        const idxSource = bestPath.indexOf(srcId);
-        const idxTarget = bestPath.indexOf(dstId);
+        // Agrega logs para ver cada enlace y la comparación
+        const isHighlighted = pathPairs.has(linkPair) || pathPairs.has(linkReversePair);
+        console.log(`### Comprobando enlace ${srcId}-${dstId}: pathPairs.has('${linkPair}') || pathPairs.has('${linkReversePair}') -> Resultado: ${isHighlighted}`);
 
-        return idxSource !== -1 && idxTarget !== -1 && Math.abs(idxSource - idxTarget) === 1;
+        return isHighlighted;
       });
+
+       console.log("### Proceso de resaltado completado.");
     }
 
 
+
+
     socket.on('update_topology', function(data) {
-      highlightBestPath(data.best_path.map(x => x.toString()));  // Asegurarse que IDs son strings
+      // 1) Actualiza el contador
+
+
+      // 2) LOG en consola
+      console.log('### Datos recibidos en front:', data);
+      console.log('### best_path:', data.best_path, ' tipo:', typeof data.best_path[0]);
+
+      // 3) Muestra `best_path` en pantalla
+      const display = document.getElementById('best-path-display');
+      if (data.best_path && data.best_path.length) {
+        display.innerText = 'Ruta óptima: ' + data.best_path.join(' → ');
+      } else {
+        display.innerText = 'Ruta óptima: —';
+      }
+
+      // 4) Resalta enlaces
+      highlightBestPath(data.best_path);
     });
+
+
+
 
     fetch('/topology')
       .then(response => response.json())
       .then(data => {
+        console.log('Fetch inicial:', data);
+        document.getElementById('best-path-display').innerText =
+          data.best_path.length
+            ? 'Ruta óptima: ' + data.best_path.join(' → ')
+            : 'Ruta óptima: —';
         initializeNetwork(data);
       });
+
   </script>
 
 </body>

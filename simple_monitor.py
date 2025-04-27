@@ -199,9 +199,12 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                     self.logger.info("  Port %d: %s", port, metrics)
 
             # Ejecutar LLBACO con el snapshot generado
-            if snapshot:  # Asegurarse de que el snapshot no esté vacío
-                best_path = self.run_llbaco(snapshot)  # Pasar el snapshot como argumento
-                data_for_flask = self.build_data_for_flask(snapshot, best_path)
+            if snapshot: 
+                best_path = self.run_llbaco(snapshot)  
+
+                dpids = self.topology['switches']      
+                best_dpid_path = [ dpids[i] for i in best_path ]
+                data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path)
 
             # Enviar snapshot a Flask
             try:

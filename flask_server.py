@@ -13,7 +13,6 @@ network_data = {
     "switches": [],
     "links": [],
     "best_path": [],
-    "snapshot_id": 0
 }
 
 @app.route('/')
@@ -29,7 +28,6 @@ def update_data():
     """Actualiza los datos de la red recibidos del monitor de Ryu."""
     global network_data
     network_data = request.get_json()  # Se espera el formato D3-friendly
-    network_data["snapshot_id"] += 1
     socketio.emit('update_topology', network_data)
     return jsonify({"status": "updated"})
 
