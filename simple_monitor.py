@@ -23,6 +23,7 @@ from ryu.lib import hub
 from ryu.topology.api import get_switch, get_link
 from ryu.topology import api as topo_api
 import llbaco
+import llbaco_aux
 import numpy as np
 import requests
 
@@ -41,7 +42,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ancho de banda en bits por segundo (ejemplo: 10 Mbps)
         self.bw = 10 * 1e6  
         # Intervalo de monitoreo en segundos
-        self.monitor_interval =10
+        self.monitor_interval = 10
         # Para medir el delay usando mensajes echo
         self.echo_timestamps = {}  
         
@@ -62,6 +63,9 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Estadísticas previas de tx y rx
         self.prev_tx = {}  # { (dpid, port): tx_packets }
         self.prev_rx = {}  # { (dpid, port): rx_packets }
+
+        self.src_node_dpid = 3 # Origen
+        self.dst_node_dpid = 2 # Destino
 
 
 
@@ -113,16 +117,22 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         delta = 0.5  # Ajusta según lo que prefieras
 
         # Construir la matriz de costos
-        cost_matrix = llbaco.build_cost_matrix(snapshot, nodes, topology_links, delta)
+        cost_matrix, load_matrix = llbaco_aux.build_cost_load_matrix(snapshot, nodes, topology_links, delta)
+
 
         self.logger.info("Matriz de costos:")
         for row in cost_matrix:
             self.logger.info(row)
+        
+        self.logger.info("Matriz de cargas:")
+        for row in load_matrix:
+            self.logger.info(row)
 
         # Ejecutar el algoritmo LLBACO
-        best_path, best_cost = llbaco.run_aco_llbaco(
-        cost_matrix, iterations=100, colony=50, alpha=1.0, beta=1.0, del_tau=1.0, rho=0.5, high_cost=1000
-        )
+        best_path, best_cost = llbaco_aux.run_aco_llbaco(
+        nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100, 
+        alpha=1.0, beta=1.0, gamma=1.0, rho=0.5,Q=1.0, high_cost=1000)
+
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
         return best_path
@@ -203,7 +213,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                 best_path = self.run_llbaco(snapshot)  
 
                 dpids = self.topology['switches']      
-                best_dpid_path = [ dpids[i] for i in best_path ]
+                best_dpid_path = best_path
                 data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path)
 
             # Enviar snapshot a Flask
