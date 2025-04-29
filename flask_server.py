@@ -13,6 +13,8 @@ network_data = {
     "switches": [],
     "links": [],
     "best_path": [],
+    "best_cost": 0,
+    "counter": 0
 }
 
 @app.route('/')

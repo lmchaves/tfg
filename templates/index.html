@@ -16,9 +16,17 @@
 <body>
   <h2>Visualización de la Red SDN</h2>
 
+  <div id="snapshot-info" style="font-size: 1.1em; margin-bottom: 10px;">
+    Instantánea: <span id="snapshot-counter">—</span>
+  </div>
+
 
   <div id="best-path-display" style="font-size: 1.1em; margin-bottom: 10px;">
     Ruta óptima: —
+  </div>
+
+  <div id="best-cost">
+    Coste: <span id="path-cost">—</span>
   </div>
   
   
@@ -132,7 +140,16 @@
 
     socket.on('update_topology', function(data) {
       // 1) Actualiza el contador
+      const counterEl = document.getElementById('snapshot-counter');
+      if (counterEl) {
+        counterEl.innerText = data.counter !== undefined ? data.counter : '—';
+      }
 
+      // Mostrar coste del camino
+      const costEl = document.getElementById('path-cost');
+      if (costEl) {
+        costEl.innerText = data.best_cost !== undefined ? data.best_cost.toFixed(4) : '—';
+      }
 
       // 2) LOG en consola
       console.log('### Datos recibidos en front:', data);
@@ -152,7 +169,6 @@
 
 
 
-
     fetch('/topology')
       .then(response => response.json())
       .then(data => {
@@ -162,6 +178,12 @@
             ? 'Ruta óptima: ' + data.best_path.join(' → ')
             : 'Ruta óptima: —';
         initializeNetwork(data);
+        document.getElementById('snapshot-counter').innerText =
+          data.counter !== undefined ? data.counter : '—';
+
+        document.getElementById('path-cost').innerText =
+          data.best_cost !== undefined ? data.best_cost.toFixed(4) : '—';
+
       });
 
   </script>

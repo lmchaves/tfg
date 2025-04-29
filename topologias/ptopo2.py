@@ -20,42 +20,49 @@ def topologia():
     c0 = net.addController('c0', controller=RemoteController, ip='127.0.0.1', port=6653)
 
     info('*** Agregar switches\n')
-    s1 = net.addSwitch('s1', cls=OVSKernelSwitch, protocols='OpenFlow13') 
-    s3 = net.addSwitch('s3', cls=OVSKernelSwitch, protocols='OpenFlow13')
-    s6 = net.addSwitch('s6', cls=OVSKernelSwitch, protocols='OpenFlow13')
-    s7 = net.addSwitch('s7', cls=OVSKernelSwitch, protocols='OpenFlow13')
+    s1 = net.addSwitch('s1', cls=OVSKernelSwitch, protocols='OpenFlow13')
+    s2 = net.addSwitch('s2', cls=OVSKernelSwitch, protocols='OpenFlow13')
+    s3 = net.addSwitch('s3', cls=OVSKernelSwitch, protocols='OpenFlow13') # Puedes reusar o renombrar si no usas 7
     s4 = net.addSwitch('s4', cls=OVSKernelSwitch, protocols='OpenFlow13')
     s5 = net.addSwitch('s5', cls=OVSKernelSwitch, protocols='OpenFlow13')
-    s2 = net.addSwitch('s2', cls=OVSKernelSwitch, protocols='OpenFlow13')
+    s6 = net.addSwitch('s6', cls=OVSKernelSwitch, protocols='OpenFlow13')
+    s7 = net.addSwitch('s7', cls=OVSKernelSwitch, protocols='OpenFlow13')
 
     info('*** Agregar hosts\n')
-    h3 = net.addHost('h3', cls=Host, ip='212.18.0.3', defaultRoute=None)
-    h6 = net.addHost('h6', cls=Host, ip='212.18.0.6', defaultRoute=None)
-    h5 = net.addHost('h5', cls=Host, ip='212.18.0.5', defaultRoute=None)
-    h8 = net.addHost('h8', cls=Host, ip='212.18.0.8', defaultRoute=None)
-    h2 = net.addHost('h2', cls=Host, ip='212.18.0.2', defaultRoute=None)
-    h4 = net.addHost('h4', cls=Host, ip='212.18.0.4', defaultRoute=None)
-    h7 = net.addHost('h7', cls=Host, ip='212.18.0.7', defaultRoute=None)
+    # Mantener tus 8 hosts o ajustar seg\u00FAn cu\u00E1ntos necesites por switch
     h1 = net.addHost('h1', cls=Host, ip='212.18.0.1', defaultRoute=None)
+    h2 = net.addHost('h2', cls=Host, ip='212.18.0.2', defaultRoute=None) # Este puede ir en s2
+    h3 = net.addHost('h3', cls=Host, ip='212.18.0.3', defaultRoute=None)
+    h4 = net.addHost('h4', cls=Host, ip='212.18.0.4', defaultRoute=None) # Este puede ir en s5 o s4
+    h5 = net.addHost('h5', cls=Host, ip='212.18.0.5', defaultRoute=None) # Este puede ir en s6
+    h6 = net.addHost('h6', cls=Host, ip='212.18.0.6', defaultRoute=None)
+    h7 = net.addHost('h7', cls=Host, ip='212.18.0.7', defaultRoute=None)
+    h8 = net.addHost('h8', cls=Host, ip='212.18.0.8', defaultRoute=None)
 
     info('* Agregar conexiones\n')
+    # Define los par\u00E1metros base para los enlaces (puedes modificar por enlace si quieres)
+    bd = {'bw': 100, 'delay': '2ms', 'loss': 0}
 
-    # Para simular que se produce perdida de paquetes
-    bd = {'bw': 10, 'delay': '5ms', 'loss': 40}  # 40% de pérdida de paquetes
-    net.addLink(h7, s4, cls=TCLink, **bd)
-    net.addLink(h8, s4, cls=TCLink, **bd)
+    # Enlaces Host-Switch
     net.addLink(h1, s1, cls=TCLink, **bd)
-    net.addLink(h2, s1, cls=TCLink, **bd)
     net.addLink(h3, s2, cls=TCLink, **bd)
-    net.addLink(h4, s2, cls=TCLink, **bd)
-    net.addLink(s1, s7, cls=TCLink, **bd)
-    net.addLink(s2, s7, cls=TCLink, **bd)
+    net.addLink(h6, s6, cls=TCLink, **bd)
+    net.addLink(h7, s7, cls=TCLink, **bd)
+    net.addLink(h8, s6, cls=TCLink, **bd)
+    # net.addLink(h2, s2, cls=TCLink, **bd)
+    # net.addLink(h4, s5, cls=TCLink, **bd)
+    # net.addLink(h5, s6, cls=TCLink, **bd)
+
+
+    net.addLink(s1, s2, cls=TCLink, **bd)
+    net.addLink(s1, s4, cls=TCLink, **bd)
+    net.addLink(s2, s4, cls=TCLink, **bd)
+    net.addLink(s2, s5, cls=TCLink, **bd)
+    net.addLink(s4, s5, cls=TCLink, **bd) 
+    net.addLink(s4, s6, cls=TCLink, **bd)
     net.addLink(s5, s7, cls=TCLink, **bd)
     net.addLink(s6, s7, cls=TCLink, **bd)
-    net.addLink(s3, s5, cls=TCLink, **bd)
-    net.addLink(s4, s6, cls=TCLink, **bd)
-    net.addLink(h5, s3, cls=TCLink, **bd)
-    net.addLink(h6, s3, cls=TCLink, **bd)
+    net.addLink(s5, s6, cls=TCLink, **bd) 
     
 
     info('* Iniciando la red\n')

@@ -42,7 +42,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ancho de banda en bits por segundo (ejemplo: 10 Mbps)
         self.bw = 10 * 1e6  
         # Intervalo de monitoreo en segundos
-        self.monitor_interval = 10
+        self.monitor_interval = 5
         # Para medir el delay usando mensajes echo
         self.echo_timestamps = {}  
         
@@ -64,8 +64,10 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.prev_tx = {}  # { (dpid, port): tx_packets }
         self.prev_rx = {}  # { (dpid, port): rx_packets }
 
-        self.src_node_dpid = 3 # Origen
-        self.dst_node_dpid = 2 # Destino
+        self.src_node_dpid = 8 # Origen
+        self.dst_node_dpid = 7 # Destino
+
+        self.snapshot_counter = 0
 
 
 
@@ -134,18 +136,23 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         alpha=1.0, beta=1.0, gamma=1.0, rho=0.5,Q=1.0, high_cost=1000)
 
 
-        self.logger.info("Ruta óptima encontrada: %s con costo %.2f", best_path, best_cost)
-        return best_path
+        self.logger.info("Ruta óptima encontrada: %s con costo %.6f", best_path, best_cost)
+        return best_path, best_cost
 
-    def build_data_for_flask(self, snapshot, best_path=None):
+    def build_data_for_flask(self, snapshot, best_path=None, best_cost=None, counter=None):
+        """
+        Prepara los datos de la red para enviar a Flask.
+        Incluye la ruta \u00F3ptima, su costo y un contador.
+        """
         data = {
-            "switches": self.topology["switches"],  # p.ej. [1,2,3,4,...]
+            "switches": self.topology["switches"],
             "links": [],
-            "best_path": best_path.tolist() if isinstance(best_path, np.ndarray) else (best_path if best_path is not None else [])
+            "best_path": best_path.tolist() if isinstance(best_path, np.ndarray) else (best_path if best_path is not None else []),
+            "best_cost": best_cost if best_cost is not None else float('inf'), 
+            "counter": counter if counter is not None else 0
         }
         for (src_dpid, dst_dpid, link_info) in self.topology["links"]:
             port = link_info['port']
-            # Buscamos la métrica en el snapshot del src_dpid
             load = 0.0
             delay = 0.0
             packet_loss = 0.0
@@ -210,11 +217,12 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
             # Ejecutar LLBACO con el snapshot generado
             if snapshot: 
-                best_path = self.run_llbaco(snapshot)  
+                self.snapshot_counter += 1 
+                best_path, best_cost = self.run_llbaco(snapshot)  
 
                 dpids = self.topology['switches']      
                 best_dpid_path = best_path
-                data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path)
+                data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
 
             # Enviar snapshot a Flask
             try:
