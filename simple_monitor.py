@@ -248,6 +248,16 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.echo_timestamps[datapath.id] = time.time()
         datapath.send_msg(parser.OFPEchoRequest(datapath, data=b''))
 
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def _packet_in_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        in_port = msg.match['in_port']
+        self.logger.debug("Packet in (minimal log): dpid=%s in_port=%s", datapath.id, in_port)
+
+
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
     def _echo_reply_handler(self, ev):
         dpid = ev.msg.datapath.id
