@@ -64,7 +64,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.prev_tx = {}  # { (dpid, port): tx_packets }
         self.prev_rx = {}  # { (dpid, port): rx_packets }
 
-        self.src_node_dpid = 8 # Origen
+        self.src_node_dpid = 15 # Origen
         self.dst_node_dpid = 7 # Destino
 
         self.snapshot_counter = 0
