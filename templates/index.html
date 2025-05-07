@@ -13,6 +13,12 @@
     .link { stroke: #999; stroke-width: 2px; }
     .node { fill: steelblue; stroke: white; stroke-width: 2px; cursor: pointer; }
     .highlight { stroke: red; stroke-width: 4px; }
+    .control-buttons button {
+        margin-right: 10px;
+        padding: 5px 10px;
+        font-size: 1em;
+        cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -29,6 +35,12 @@
 
   <div id="best-cost">
     Coste: <span id="path-cost">—</span>
+  </div>
+
+  <div class="control-buttons">
+    <button id="pause-button">Pausa</button>
+    <button id="continue-button">Continuar</button>
+    <button id="skip-button">Saltar 1</button>
   </div>
   
   
@@ -150,6 +162,13 @@
        console.log("### Proceso de resaltado completado.");
     }
 
+    // Función para enviar comandos de control al servidor Flask
+    function sendControlCommand(command, steps = 1) {
+      // Envía el comando usando Socket.IO
+      socket.emit('control_command', { command: command, steps: steps });
+      console.log(`### Comando de control enviado: ${command} con pasos ${steps}`);
+    }
+
 
 
 
@@ -200,6 +219,29 @@
           data.best_cost !== undefined ? data.best_cost.toFixed(4) : '—';
 
       });
+
+    // Event Listeners para los botones 
+    document.getElementById('pause-button').addEventListener('click', () => {
+        sendControlCommand('pause');
+    });
+
+    document.getElementById('continue-button').addEventListener('click', () => {
+        sendControlCommand('continue');
+    });
+
+    document.getElementById('skip-button').addEventListener('click', () => {
+        sendControlCommand('skip', 1); // Saltar 1 instant\u00E1nea
+    });
+
+    // Si a\u00F1adiste un input y un bot\u00F3n para saltar N pasos:
+    // document.getElementById('skip-multiple-button').addEventListener('click', () => {
+    //     const steps = parseInt(document.getElementById('skip-steps').value, 10);
+    //     if (!isNaN(steps) && steps > 0) {
+    //         sendControlCommand('skip', steps);
+    //     } else {
+    //         alert("Por favor, ingrese un n\u00FAmero v\u00E1lido de instant\u00E1neas para saltar.");
+    //     }
+    // });
 
   </script>
 

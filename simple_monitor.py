@@ -26,6 +26,86 @@ import llbaco
 import llbaco_aux
 import numpy as np
 import requests
+import json 
+import eventlet.wsgi 
+import eventlet 
+import eventlet.queue 
+
+# Clase para la aplicaci\u00F3n WSGI que manejar\u00E1 las peticiones HTTP
+class ControlHttpApp(object):
+    """
+    Aplicaci\u00F3n WSGI para recibir comandos de control.
+    Guarda una referencia a la instancia del monitor para acceder a su cola.
+    """
+    def __init__(self, monitor_instance):
+        # Guardamos una referencia a la instancia de ExtendedMonitor
+        self.monitor = monitor_instance
+        self.logger = monitor_instance.logger # Acceso al logger del monitor
+
+    def __call__(self, environ, start_response):
+        # Este m\u00E9todo se llama en cada petici\u00F3n HTTP
+        path = environ.get('PATH_INFO', '')
+        method = environ.get('REQUEST_METHOD', '')
+
+        if method == 'POST' and path == '/control':
+            try:
+                request_body_size = int(environ.get('CONTENT_LENGTH', 0))
+                request_body = environ['wsgi.input'].read(request_body_size)
+                command_data = json.loads(request_body)
+
+                command = command_data.get('command')
+
+                # Ponemos el comando en la cola de control del monitor
+                # Usamos self.monitor para acceder a la instancia
+                self.monitor.control_queue.put(command_data)
+                self.logger.info("Comando de control recibido v\u00EDa HTTP: %s", command_data)
+
+                if command == 'continue' and self.monitor.paused and self.monitor._resume_event is not None:
+
+                     self.logger.debug("HTTP Handler: Intentando enviar signal. Tipo de _resume_event: %s, Valor: %s (ID: %s)",
+                                       type(self.monitor._resume_event),
+                                       self.monitor._resume_event,
+                                       id(self.monitor._resume_event))
+
+                     # \u00A1A\u00F1adir estas l\u00EDneas de prueba!
+                     try:
+                         self.logger.debug("HTTP Handler: --- Prueba diagn\u00F3stica ---")
+                         temp_event = hub.Event()
+                         self.logger.debug("HTTP Handler: Evento temporal creado: %s (ID: %s)", type(temp_event), id(temp_event))
+                         temp_event.set() # \u00A1Intentar enviar en este nuevo evento!
+                         self.logger.debug("HTTP Handler: temp_event.set() funcion\u00F3.")
+                     except AttributeError as e:
+                         self.logger.error("HTTP Handler: ERROR: temp_event.set() fall\u00F3 tambi\u00E9n: %s", e)
+                         # Si este error aparece aqu\u00ED, el problema es con la librer\u00EDa eventlet
+
+                     self.logger.debug("HTTP Handler: --- Fin Prueba diagn\u00F3stica ---")
+
+
+                     self.logger.debug("HTTP Handler: Enviando signal a _resume_event (ID: %s)", id(self.monitor._resume_event))
+                     self.monitor._resume_event.set() # <--- La l\u00EDnea original que falla
+
+
+
+
+                status = '200 OK'
+                headers = [('Content-Type', 'application/json')]
+                start_response(status, headers)
+                return [json.dumps({"status": "success", "message": "Command received"}).encode('utf-8')]
+
+            except Exception as e:
+                self.logger.error("Error procesando comando HTTP: %s", e)
+                status = '500 Internal Server Error'
+                headers = [('Content-Type', 'application/json')]
+                start_response(status, headers)
+                return [json.dumps({"status": "error", "message": str(e)}).encode('utf-8')]
+
+        else:
+            # Otros m\u00E9todos o rutas no soportadas
+            status = '404 Not Found'
+            headers = [('Content-Type', 'application/json')]
+            start_response(status, headers)
+            return [json.dumps({"status": "error", "message": "Endpoint not found"}).encode('utf-8')]
+
 
 
 class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
@@ -53,9 +133,6 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.max_packet_loss = 0.0
 
 
-        # Inicia el hilo de monitoreo
-        self.monitor_thread = hub.spawn(self._monitor)
-
         #### Pérdida de paquetes #######
 
         # Diccionario para guardar las conexiones entre puertos { (dpid, port): (peer_dpid, peer_port) }
@@ -65,9 +142,24 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.prev_rx = {}  # { (dpid, port): rx_packets }
 
         self.src_node_dpid = 15 # Origen
-        self.dst_node_dpid = 7 # Destino
+        self.dst_node_dpid = 1 # Destino
 
         self.snapshot_counter = 0
+
+        self.control_queue = hub.Queue() # Cola para las isntantaenas
+        self.paused = False  # Para pausar la instantanea
+        self._resume_event = None
+
+        # Inicia el hilo de monitoreo
+        self.monitor_thread = hub.spawn(self._monitor)
+
+
+        # Iniciar el servidor HTTP de control en un hilo verde
+        # Escuchar en localhost:8080
+        control_app_instance = ControlHttpApp(self)
+        self.control_server_thread = hub.spawn(eventlet.wsgi.server, eventlet.listen(('127.0.0.1', 8080)), control_app_instance)
+        self.logger.info("Servidor de control HTTP iniciado en 127.0.0.1:8080")
+
 
 
 
@@ -142,7 +234,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
     def build_data_for_flask(self, snapshot, best_path=None, best_cost=None, counter=None):
         """
         Prepara los datos de la red para enviar a Flask.
-        Incluye la ruta \u00F3ptima, su costo y un contador.
+        Incluye la ruta óptima, su costo y un contador.
         """
         data = {
             "switches": self.topology["switches"],
@@ -169,6 +261,43 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                 "packet_loss": packet_loss
             })
         return data
+
+    def process_control_command(self, command_data):
+        """Procesa un comando de control recibido."""
+        command = command_data.get('command')
+        if command == 'pause':
+            self.logger.info("Comando: PAUSAR monitoreo.")
+            self.paused = True
+            # Log de estado del evento de resume antes de pausar
+            self.logger.debug("PAUSE: _resume_event es %s (ID: %s)",
+                              'None' if self._resume_event is None else 'Existente',
+                              id(self._resume_event) if self._resume_event else 'N/A')
+
+        elif command == 'continue':
+            self.logger.info("Comando: CONTINUAR monitoreo.")
+            self.paused = False
+            # Log de estado del evento de resume antes de intentar enviar
+            self.logger.debug("CONTINUE: _resume_event es %s antes de set() (ID: %s)",
+                              'None' if self._resume_event is None else 'Existente',
+                              id(self._resume_event) if self._resume_event else 'N/A')
+
+            # \u00A1Solo enviar si el evento existe!
+            if self._resume_event is not None:
+                 self.logger.debug("CONTINUE: Llamado _resume_event.set() (ID: %s)", id(self._resume_event))
+                 self._resume_event.set() # Despierta el hilo que est\u00E1 esperando
+            else:
+                 self.logger.debug("CONTINUE: _resume_event es None, no se llama set(). El monitor no estaba en wait().")
+
+
+        elif command == 'skip':
+            steps = command_data.get('steps', 1)
+            self.logger.info("Comando: SALTAR %d instant\u00E1nea(s).", steps)
+            self._skip_steps += steps
+            self.logger.debug("SKIP: _resume_event es %s (ID: %s)",
+                              'None' if self._resume_event is None else 'Existente',
+                              id(self._resume_event) if self._resume_event else 'N/A')
+
+
 
 
 
@@ -199,39 +328,88 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                     del self.link_metrics[datapath.id]
 
     def _monitor(self):
+        self._skip_steps = 0 # Inicializar variable de salto
+
         while True:
-            # Para cada datapath, solicita estadísticas y un echo para delay.
-            for dp in self.datapaths.values():
-                self._request_stats(dp)
-                self._send_echo_request(dp)
+            # 1. Verificar comandos de control
+            # Leer de la cola sin bloquear (si hay algo)
+            while not self.control_queue.empty():
+                try:
+                    command_data = self.control_queue.get_nowait()
+                    self.process_control_command(command_data)
+                except eventlet.queue.Empty:
+                    pass # La cola estaba vacía, lo cual es normal
 
-            # Generar el snapshot
-            snapshot = self.get_network_snapshot()
+            # 2. Pausar si es necesario
+            if self.paused:
+                self.logger.debug("Monitoreo PAUSADO. Esperando comando 'continue'...")
 
-            # Depuración: Imprimir self.link_metrics
-            self.logger.info("Contenido de self.link_metrics:")
-            for dpid, ports in self.link_metrics.items():
-                self.logger.info("Switch %016x:", dpid)
-                for port, metrics in ports.items():
-                    self.logger.info("  Port %d: %s", port, metrics)
+                # \u00A1Crear un nuevo evento cada vez que se pausa si a\u00FAn no hay uno!
+                # El manejador HTTP lo necesitar\u00E1 para hacer .set()
+                if self._resume_event is None:
+                    self.logger.debug("MONITOR: Creando nuevo _resume_event para esta pausa.")
+                    self._resume_event = hub.Event()
+                    self.logger.debug("MONITOR: Nuevo _resume_event creado (ID: %s)", id(self._resume_event))
 
-            # Ejecutar LLBACO con el snapshot generado
-            if snapshot: 
-                self.snapshot_counter += 1 
-                best_path, best_cost = self.run_llbaco(snapshot)  
 
-                dpids = self.topology['switches']      
-                best_dpid_path = best_path
-                data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
+                # Log de estado del evento de resume justo antes de esperar
+                self.logger.debug("MONITOR: _resume_event es %s antes de wait() (ID: %s)",
+                                  'None' if self._resume_event is None else 'Existente',
+                                  id(self._resume_event) if self._resume_event else 'N/A')
 
-            # Enviar snapshot a Flask
-            try:
-                requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
-            except Exception as e:
-                self.logger.error("Error enviando datos a Flask: %s", e)
 
-            # Esperar antes de la siguiente iteración
-            hub.sleep(self.monitor_interval)
+                self._resume_event.wait() # El hilo duerme aqu\u00ED
+
+                # \u00A1Despu\u00E9s de wait() (cuando se reanuda), limpiar el evento!
+                self.logger.debug("MONITOR: _resume_event es Existente despu\u00E9s de wait() (ID: %s)",
+                                  id(self._resume_event) if self._resume_event else 'N/A') # <--- Log corregido
+
+                self.logger.debug("Monitoreo reanudado.")
+
+                # Limpiar el evento despu\u00E9s de que se us\u00F3 para reanudar
+                self._resume_event = None # <--- Limpiar el evento
+
+
+                continue
+
+
+            # 3. Generar snapshot y ejecutar LLBACO (Solo si no estamos saltando)
+            if self._skip_steps > 0:
+                self.logger.debug("Saltando instant\u00E1nea (%d restantes).", self._skip_steps)
+                self._skip_steps -= 1
+            else:
+                # Para cada datapath, solicita estadísticas y un echo para delay.
+                for dp in self.datapaths.values():
+                    self._request_stats(dp)
+                    self._send_echo_request(dp)
+
+                # Generar el snapshot
+                snapshot = self.get_network_snapshot()
+
+                # Depuración: Imprimir self.link_metrics
+                self.logger.info("Contenido de self.link_metrics:")
+                for dpid, ports in self.link_metrics.items():
+                    self.logger.info("Switch %016x:", dpid)
+                    for port, metrics in ports.items():
+                        self.logger.info("  Port %d: %s", port, metrics)
+
+                # Ejecutar LLBACO con el snapshot generado
+                if snapshot: 
+                    self.snapshot_counter += 1 
+                    best_path, best_cost = self.run_llbaco(snapshot)  
+
+                    dpids = self.topology['switches']      
+                    best_dpid_path = best_path
+                    data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
+
+                # Enviar snapshot a Flask
+                try:
+                    requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
+                except Exception as e:
+                    self.logger.error("Error enviando datos a Flask: %s", e)
+
+                # Esperar antes de la siguiente iteración
+                hub.sleep(self.monitor_interval)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
