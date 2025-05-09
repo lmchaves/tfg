@@ -297,6 +297,25 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                               'None' if self._resume_event is None else 'Existente',
                               id(self._resume_event) if self._resume_event else 'N/A')
 
+        elif command == 'set_endpoints': # \u00A1Nuevo comando!
+            src_dpid = command_data.get('src')
+            dst_dpid = command_data.get('dst')
+            if src_dpid is not None and dst_dpid is not None:
+                self.src_node_dpid = src_dpid
+                self.dst_node_dpid = dst_dpid
+                self.logger.info("Puntos finales actualizados: Origen=%s, Destino=%s", self.src_node_dpid, self.dst_node_dpid)
+                # Opcional: Podr\u00EDas querer forzar una ejecuci\u00F3n del algoritmo inmediatamente
+                # despu\u00E9s de cambiar los puntos finales. Esto requerir\u00EDa se\u00F1alizar el hilo _monitor
+                # para que se ejecute sin esperar el monitor_interval.
+                # Por ejemplo, podr\u00EDas poner un evento en el hilo _monitor
+                # if self._execute_now_event is not None:
+                #     self._execute_now_event.send()
+            else:
+                self.logger.warning("Comando 'set_endpoints' recibido sin src o dst v\u00E1lidos.")
+
+        else:
+            self.logger.warning("Comando de control desconocido recibido: %s", command)
+
 
 
 
