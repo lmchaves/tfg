@@ -30,6 +30,7 @@ import json
 import eventlet.wsgi 
 import eventlet 
 import eventlet.queue 
+import pandas as pd
 
 # Clase para la aplicaci\u00F3n WSGI que manejar\u00E1 las peticiones HTTP
 class ControlHttpApp(object):
@@ -159,6 +160,9 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         control_app_instance = ControlHttpApp(self)
         self.control_server_thread = hub.spawn(eventlet.wsgi.server, eventlet.listen(('127.0.0.1', 8080)), control_app_instance)
         self.logger.info("Servidor de control HTTP iniciado en 127.0.0.1:8080")
+
+        self.experiment_snapshot = 4    
+        self.experiment_runs     = 5
 
 
 
@@ -415,17 +419,42 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                 # Ejecutar LLBACO con el snapshot generado
                 if snapshot: 
                     self.snapshot_counter += 1 
-                    best_path, best_cost = self.run_llbaco(snapshot)  
+                    if self.snapshot_counter == self.experiment_snapshot:
+                        self.logger.info("=== Experimento: ejecutando %d runs en snapshot %d ===",
+                                        self.experiment_runs, self.snapshot_counter)
+                        costs = []
+                        for i in range(self.experiment_runs):
+                            _, cost_i = self.run_llbaco(snapshot)
+                            costs.append(cost_i)
+                            self.logger.debug("Run %2d/%2d: cost=%.6f", i+1, self.experiment_runs, cost_i)
 
-                    dpids = self.topology['switches']      
-                    best_dpid_path = best_path
-                    data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
+                        mean_cost = float(np.mean(costs))
+                        std_cost  = float(np.std(costs, ddof=1))
 
-                # Enviar snapshot a Flask
-                try:
-                    requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
-                except Exception as e:
-                    self.logger.error("Error enviando datos a Flask: %s", e)
+                        # Guardar a archivo CSV
+                        df = pd.DataFrame({
+                            'snapshot': [self.snapshot_counter] * self.experiment_runs,
+                            'run': list(range(1, self.experiment_runs + 1)),
+                            'cost': costs
+                        })
+                        df['mean'] = mean_cost
+                        df['std'] = std_cost
+
+                        filename = f"aco_experiment_snapshot{self.snapshot_counter}.csv"
+                        df.to_csv(filename, index=False)
+                        self.logger.info("Resultados del experimento guardados en: %s", filename)
+                    else:
+                        best_path, best_cost = self.run_llbaco(snapshot)  
+
+                        dpids = self.topology['switches']      
+                        best_dpid_path = best_path
+                        data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
+
+                        # Enviar snapshot a Flask
+                        try:
+                            requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
+                        except Exception as e:
+                            self.logger.error("Error enviando datos a Flask: %s", e)
 
                 # Esperar antes de la siguiente iteración
                 hub.sleep(self.monitor_interval)
