@@ -55,6 +55,43 @@
     <input type="number" id="src-dpid" value="15" min="1"> <label for="dst-dpid" style="margin-left: 20px;">Destino (DPID):</label>
     <input type="number" id="dst-dpid" value="1" min="1"> <button id="set-endpoints-button" style="margin-left: 20px;">Establecer</button>
   </div>
+
+  <div id="link-param-control" style="margin-top: 30px; padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-radius: 4px;">
+    <h3>Control de Parámetros de Enlace</h3>
+    <div>
+      <label for="param-link-src-dpid">Origen (DPID):</label>
+      <input type="number" id="param-link-src-dpid" value="1" min="1" style="width: 60px;">
+      <label for="param-link-dst-dpid" style="margin-left: 10px;">Destino (DPID):</label>
+      <input type="number" id="param-link-dst-dpid" value="2" min="1" style="width: 60px;">
+    </div>
+    <div style="margin-top: 10px;">
+      <label for="param-type">Parámetro:</label>
+      <select id="param-type">
+        <option value="delay">Retardo (ms)</option>
+        <option value="loss">Pérdida (%)</option>
+        <option value="bw">Ancho de Banda (Mbps)</option>
+      </select>
+      <input type="number" id="param-value" value="5" min="0" step="0.1" style="width: 80px; margin-left: 10px;">
+      <button id="set-link-param-button" style="margin-left: 20px;">Aplicar</button>
+    </div>
+  </div>
+
+  <div id="traffic-generation" style="margin-top: 30px; padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; border-radius: 4px;">
+    <h3>Generar Tráfico (iperf)</h3>
+    <div>
+      <label for="iperf-src-host">Host Origen (hX):</label>
+      <input type="text" id="iperf-src-host" value="h2" style="width: 60px;">
+      <label for="iperf-dst-ip" style="margin-left: 10px;">IP Destino (ej. 212.18.0.1 para h1):</label>
+      <input type="text" id="iperf-dst-ip" value="212.18.0.1" style="width: 120px;">
+    </div>
+    <div style="margin-top: 10px;">
+      <label for="iperf-bandwidth">Ancho de Banda (Mbps):</label>
+      <input type="number" id="iperf-bandwidth" value="50" min="1" step="10" style="width: 80px;">
+      <label for="iperf-duration" style="margin-left: 10px;">Duración (s):</label>
+      <input type="number" id="iperf-duration" value="60" min="10" style="width: 60px;">
+      <button id="start-iperf-button" style="margin-left: 20px;">Iniciar Tráfico</button>
+    </div>
+  </div>
   
   <div class="graph-container">
     <svg width="800" height="1000"></svg>
@@ -305,6 +342,54 @@
 
     document.getElementById('set-endpoints-button').addEventListener('click', () => {
         sendEndpoints(); 
+    });
+
+        // Manejador para el botón "Aplicar Parámetro de Enlace"
+        document.getElementById('set-link-param-button').addEventListener('click', () => {
+        const srcDpid = parseInt(document.getElementById('param-link-src-dpid').value, 10);
+        const dstDpid = parseInt(document.getElementById('param-link-dst-dpid').value, 10);
+        const paramType = document.getElementById('param-type').value;
+        const paramValue = parseFloat(document.getElementById('param-value').value);
+
+        if (isNaN(srcDpid) || isNaN(dstDpid) || isNaN(paramValue) || srcDpid <= 0 || dstDpid <= 0) {
+            alert("Por favor, ingrese DPIDs válidos y un valor numérico para el parámetro.");
+            return;
+        }
+
+        socket.emit('control_command', {
+            command: 'set_link_param',
+            src_dpid: srcDpid,
+            dst_dpid: dstDpid,
+            param_name: paramType,
+            value: paramValue
+        });
+        console.log(`Enviando comando set_link_param: ${srcDpid}-${dstDpid}, ${paramType}=${paramValue}`);
+    });
+
+    // Manejador para el botón "Iniciar Tráfico (iperf)"
+    document.getElementById('start-iperf-button').addEventListener('click', () => {
+        const srcHostName = document.getElementById('iperf-src-host').value;
+        const dstIp = document.getElementById('iperf-dst-ip').value;
+        const bandwidthMbps = parseInt(document.getElementById('iperf-bandwidth').value, 10);
+        const durationS = parseInt(document.getElementById('iperf-duration').value, 10);
+
+        if (!srcHostName || !dstIp || isNaN(bandwidthMbps) || bandwidthMbps <= 0 || isNaN(durationS) || durationS <= 0) {
+            alert("Por favor, complete todos los campos de tráfico con valores válidos.");
+            return;
+        }
+        
+        // Asegúrate de que el servidor iperf esté corriendo en el destino (ej. h1)
+        // Mininet iniciará el servidor iperf en h1 automáticamente al inicio en este ejemplo.
+        // Si cambias el destino, tendrías que asegurarte de que el servidor esté allí.
+
+        socket.emit('control_command', {
+            command: 'run_iperf_traffic',
+            host_name: srcHostName,
+            target_ip: dstIp,
+            bandwidth_mbps: bandwidthMbps,
+            duration_s: durationS
+        });
+        console.log(`Enviando comando run_iperf_traffic: ${srcHostName} a ${dstIp} con ${bandwidthMbps}Mbps por ${durationS}s`);
     });
 
   </script>

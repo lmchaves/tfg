@@ -1,16 +1,23 @@
+import eventlet
+eventlet.monkey_patch()
+
+
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
 import requests 
 import json
 import eventlet
+import collections
+import xmlrpc.client
 
-eventlet.monkey_patch()
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # URL del endpoint de control en el monitor Ryu
 RYU_CONTROL_URL = "http://127.0.0.1:8080/control"
+MININET_RPC_URL = "http://127.0.0.1:8000/"
+mininet_rpc = xmlrpc.client.ServerProxy(MININET_RPC_URL, allow_none=True) # Cliente RPC
 
 # Variable global para almacenar los datos actualizados de la red.
 network_data = {
@@ -44,18 +51,66 @@ def handle_control_command(data):
     Esta funci\u00F3n es llamada por el frontend v\u00EDa Socket.IO.
     """
     print(f"Comando de control recibido del frontend: {data}")
-    try:
-        # Envía el comando al endpoint de control en el monitor Ryu  HTTP POST
-        response = requests.post(RYU_CONTROL_URL, json=data)
-        if response.status_code == 200:
-            print("Comando enviado a Ryu exitosamente.")
-            socketio.emit('control_response', {"status": "success", "command": data.get('command')})
-        else:
-            print(f"Error al enviar comando a Ryu: {response.status_code} - {response.text}")
-            socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": response.text})
-    except requests.exceptions.RequestException as e:
-        print(f"Error de conexi\u00F3n al enviar comando a Ryu: {e}")
-        socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": f"Connection error: {e}"})
+    command = data.get('command') 
+    if command in ['pause', 'continue', 'skip', 'set_endpoints']:
+        try:
+            # Envía el comando al endpoint de control en el monitor Ryu  HTTP POST
+            response = requests.post(RYU_CONTROL_URL, json=data)
+            if response.status_code == 200:
+                print("Comando enviado a Ryu exitosamente.")
+                socketio.emit('control_response', {"status": "success", "command": data.get('command')})
+            else:
+                print(f"Error al enviar comando a Ryu: {response.status_code} - {response.text}")
+                socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": response.text})
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexi\u00F3n al enviar comando a Ryu: {e}")
+            socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": f"Connection error: {e}"})
+    elif command == 'set_link_param':
+        src_dpid = data.get('src_dpid')
+        dst_dpid = data.get('dst_dpid')
+        param_name = data.get('param_name')
+        value = data.get('value')
+        print(f"RPC: Recibida petición para set_link_param: {src_dpid}-{dst_dpid}, {param_name}={value}")
+        try:
+            success = mininet_rpc.set_link_param(src_dpid, dst_dpid, param_name, value)
+            if success:
+                print(f"RPC: Parámetro de enlace {param_name} actualizado en Mininet.")
+                # Opcional: Enviar un mensaje al frontend para confirmar
+                socketio.emit('control_response', {"status": "success", "message": f"Parámetro {param_name} de enlace {src_dpid}-{dst_dpid} cambiado."})
+            else:
+                print(f"RPC: Fallo al actualizar parámetro {param_name} en Mininet.")
+                socketio.emit('control_response', {"status": "error", "message": f"Fallo al cambiar parámetro {param_name} de enlace {src_dpid}-{dst_dpid}."})
+        except xmlrpc.client.Fault as e:
+            print(f"RPC ERROR: Fallo XML-RPC al llamar a set_link_param: {e}")
+            socketio.emit('control_response', {"status": "error", "message": f"Error RPC al cambiar {param_name}: {e}"})
+        except Exception as e:
+            print(f"ERROR: Conexión RPC fallida o error inesperado: {e}")
+            socketio.emit('control_response', {"status": "error", "message": f"Error de conexión RPC o inesperado: {e}. Asegúrate que Mininet RPC está corriendo."})
+
+    elif command == 'run_iperf_traffic':
+        host_name = data.get('host_name')
+        target_ip = data.get('target_ip')
+        bandwidth_mbps = data.get('bandwidth_mbps')
+        duration_s = data.get('duration_s', 60) # Por defecto 60 segundos
+        print(f"RPC: Recibida petición para run_iperf_traffic: {host_name} a {target_ip} con {bandwidth_mbps}Mbps")
+        try:
+            success = mininet_rpc.run_host_iperf(host_name, target_ip, bandwidth_mbps, duration_s)
+            if success:
+                print(f"RPC: Tráfico iperf iniciado en {host_name}.")
+                socketio.emit('control_response', {"status": "success", "message": f"Tráfico iperf iniciado en {host_name}."})
+            else:
+                print(f"RPC: Fallo al iniciar tráfico iperf en {host_name}.")
+                socketio.emit('control_response', {"status": "error", "message": f"Fallo al iniciar tráfico iperf en {host_name}."})
+        except xmlrpc.client.Fault as e:
+            print(f"RPC ERROR: Fallo XML-RPC al llamar a run_iperf_traffic: {e}")
+            socketio.emit('control_response', {"status": "error", "message": f"Error RPC al iniciar iperf: {e}"})
+        except Exception as e:
+            print(f"ERROR: Conexión RPC fallida o error inesperado: {e}")
+            socketio.emit('control_response', {"status": "error", "message": f"Error de conexión RPC o inesperado: {e}. Asegúrate que Mininet RPC está corriendo."})
+
+    else:
+        print(f"Comando desconocido: {command}")
+        
 
 
 if __name__ == '__main__':

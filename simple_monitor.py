@@ -423,9 +423,11 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         self.logger.info("=== Experimento: ejecutando %d runs en snapshot %d ===",
                                         self.experiment_runs, self.snapshot_counter)
                         costs = []
+                        paths = []
                         for i in range(self.experiment_runs):
-                            _, cost_i = self.run_llbaco(snapshot)
+                            path_i, cost_i = self.run_llbaco(snapshot)
                             costs.append(cost_i)
+                            paths.append(" → ".join(map(str, path_i)))
                             self.logger.debug("Run %2d/%2d: cost=%.6f", i+1, self.experiment_runs, cost_i)
 
                         mean_cost = float(np.mean(costs))
@@ -435,7 +437,8 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         df = pd.DataFrame({
                             'snapshot': [self.snapshot_counter] * self.experiment_runs,
                             'run': list(range(1, self.experiment_runs + 1)),
-                            'cost': costs
+                            'cost': costs,
+                            'path': paths
                         })
                         df['mean'] = mean_cost
                         df['std'] = std_cost
