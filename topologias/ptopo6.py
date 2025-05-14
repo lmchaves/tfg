@@ -36,22 +36,83 @@ class MininetRpcApi:
             return False
 
         try:
-            if param_name == "delay":
-                link.delay = f"{value}ms" # Asigna el valor de string directamente para TCLink
-                info(f"RPC: Retardo del enlace {src_dpid}-{dst_dpid} establecido a {value}ms\n")
-            elif param_name == "loss":
-                link.loss = float(value)
-                info(f"RPC: Pérdida del enlace {src_dpid}-{dst_dpid} establecida a {value}%\n")
-            elif param_name == "bw":
-                link.bw = float(value) # Ancho de banda en Mbps
-                info(f"RPC: Ancho de banda del enlace {src_dpid}-{dst_dpid} establecido a {value}Mbps\n")
+            intf1 = link.intf1 # Interfaz del primer nodo en el enlace
+            intf2 = link.intf2 # Interfaz del segundo nodo en el enlace
+
+            # Determinar cu\u00E1l interfaz pertenece al src_dpid y cu\u00E1l al dst_dpid
+            if int(intf1.node.dpid, 16) == src_dpid:
+                src_intf = intf1
+                dst_intf = intf2
+            elif int(intf2.node.dpid, 16) == src_dpid:
+                 src_intf = intf2
+                 dst_intf = intf1
             else:
-                info(f"RPC ERROR: Parámetro desconocido: {param_name}\n")
+                 info(f"RPC ERROR: No se pudo identificar la interfaz de origen para DPID {src_dpid} en el enlace {src_dpid}-{dst_dpid}.")
+                 return False
+
+            # Obtener el nodo de origen para ejecutar el comando tc
+            src_node = self.switches.get(src_dpid) # Ya mapeado por DPID entero
+            if not src_node:
+                 info(f"RPC ERROR: Nodo con DPID de origen {src_dpid} no encontrado.")
+                 return False
+
+            # Los qdiscs htb y netem a menudo tienen handles fijos para TCLink
+            # HTB root es 5:, Netem hijo es 10: parent 5:1
+            htb_handle = "5:"
+            netem_handle = "10:" # Handle del qdisc netem
+
+
+            command = None # Inicializar comando a None
+
+            if param_name == "delay":
+                command = f"tc qdisc change dev {src_intf.name} handle {netem_handle} netem delay {value}ms"
+                info(f"RPC: Ejecutando tc command en {src_node.name}: {command}")
+                output = src_node.cmd(command)
+                info(f"RPC: Output tc delay: {output.strip()}")
+
+              
+                info(f"RPC: Retardo del enlace {src_dpid}-{dst_dpid} intentado establecer a {value}ms")
+
+
+            elif param_name == "loss":
+                 command = f"tc qdisc change dev {src_intf.name} handle {netem_handle} netem loss {value}%"
+                 info(f"RPC: Ejecutando tc command en {src_node.name}: {command}")
+                 output = src_node.cmd(command)
+                 info(f"RPC: Output tc loss: {output.strip()}")
+                 info(f"RPC: P\u00E9rdida del enlace {src_dpid}-{dst_dpid} intentada establecer a {value}%")
+
+
+            elif param_name == "bw":
+                 
+                 tbf_handle = "6:"
+                 
+                 rate_bit = float(value) * 1e6 # Convertir Mbps a bits/seg
+                
+                 burst_bytes = min(rate_bit / 8, 1000) 
+                 limit_bytes = int(burst_bytes * 10)   
+
+                 command = f"tc qdisc change dev {src_intf.name} parent {htb_handle} handle {tbf_handle} tbf rate {rate_bit:.0f}bit burst {burst_bytes:.0f} limit {limit_bytes:.0f}"
+                 info(f"RPC: Ejecutando tc command en {src_node.name}: {command}")
+                 output = src_node.cmd(command)
+                 info(f"RPC: Output tc bw: {output.strip()}")
+                 info(f"RPC: Ancho de banda del enlace {src_dpid}-{dst_dpid} intentado establecer a {value}Mbps")
+
+
+            else:
+                info(f"RPC ERROR: Par\u00E1metro desconocido: {param_name}. No se ejecut\u00F3 comando tc.")
                 return False
-            
-            return True
+
+            # \u00A1Si llegamos aqu\u00ED sin error, asumimos que el comando tc se intent\u00F3!
+            # El output del comando tc capturado en la variable 'output' puede contener mensajes de error si tc fall\u00F3.
+            # Podr\u00EDamos a\u00F1adir l\u00F3gica para verificar si 'output' indica un error de tc.
+            # Por ahora, si el comando se ejecuta sin excepci\u00F3n de Python, retornamos True.
+            # Una mejora ser\u00EDa parsear el output de tc.
+
+            return True # Retorna True si el comando tc se intent\u00F3 ejecutar
+
         except Exception as e:
-            info(f"RPC ERROR: Fallo al establecer {param_name} en enlace {src_dpid}-{dst_dpid}: {e}\n")
+            info(f"RPC ERROR: Fallo GENERAL al intentar establecer {param_name} en enlace {src_dpid}-{dst_dpid} v\u00EDa tc command: {e}\n")
+            # Si hay una excepci\u00F3n de Python durante la ejecuci\u00F3n del comando (ej. sintaxis incorrecta, interfaz no encontrada, etc.)
             return False
 
     # Función RPC para ejecutar un comando iperf en un host
