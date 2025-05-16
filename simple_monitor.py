@@ -86,8 +86,6 @@ class ControlHttpApp(object):
                      self.monitor._resume_event.set() # <--- La l\u00EDnea original que falla
 
 
-
-
                 status = '200 OK'
                 headers = [('Content-Type', 'application/json')]
                 start_response(status, headers)
@@ -100,6 +98,136 @@ class ControlHttpApp(object):
                 start_response(status, headers)
                 return [json.dumps({"status": "error", "message": str(e)}).encode('utf-8')]
 
+        elif method == 'POST' and path == '/notify_param_change':
+            try:
+                request_body_size = int(environ.get('CONTENT_LENGTH', 0))
+                request_body = environ['wsgi.input'].read(request_body_size)
+                notification_data = json.loads(request_body)
+
+                # Esperamos datos como: {'src_dpid': 15, 'dst_dpid': 14, 'param_name': 'delay', 'value': 50}
+                src_dpid = notification_data.get('src_dpid')
+                dst_dpid = notification_data.get('dst_dpid')
+                param_name = notification_data.get('param_name')
+                value = notification_data.get('value')
+
+                # Convertir DPIDs a int si vienen como otra cosa (Flask los env\u00EDa como int, pero mejor ser robusto)
+                try:
+                    src_dpid = int(src_dpid)
+                    dst_dpid = int(dst_dpid)
+                except (ValueError, TypeError):
+                    self.logger.error("Notificaci\u00F3n con DPIDs inv\u00E1lidos: src=%s, dst=%s", src_dpid, dst_dpid)
+                    status = '400 Bad Request'
+                    headers = [('Content-Type', 'application/json')]
+                    start_response(status, headers)
+                    return [json.dumps({"status": "error", "message": "Invalid source or destination DPID"}).encode('utf-8')]
+
+
+                self.logger.info("Notificaci\u00F3n de cambio de par\u00E1metro recibida: Enlace %d-%d, %s = %s",
+                                 src_dpid, dst_dpid, param_name, value)
+
+                # --- \u00A1Actualizar self.monitor.link_metrics directamente! ---
+                # Necesitas encontrar el puerto correcto en src_dpid para el enlace a dst_dpid
+                # Iterar sobre los enlaces de la topolog\u00EDa (que el monitor actualiza peri\u00F3dicamente)
+                src_port = None
+                # Los enlaces en self.monitor.topology['links'] est\u00E1n como (src_dpid, dst_dpid, {'port': src_port})
+                # Iterar sobre una copia si el hilo principal podr\u00EDa modificarlo
+                for link in list(self.monitor.topology.get('links', [])):
+                    # link[0] es src_dpid, link[1] es dst_dpid, link[2]['port'] es el puerto en src
+                    if link[0] == src_dpid and link[1] == dst_dpid:
+                        src_port = link[2].get('port')
+                        break
+
+                if src_port is not None:
+                    # Asegurarse de que la entrada para este DPID y puerto existe en link_metrics
+                    if src_dpid not in self.monitor.link_metrics:
+                        self.monitor.link_metrics[src_dpid] = {}
+                    if src_port not in self.monitor.link_metrics[src_dpid]:
+                         # Inicializar las m\u00E9tricas para este puerto si a\u00FAn no existen
+                         self.monitor.link_metrics[src_dpid][src_port] = {'load': 0.0, 'packet_loss': 0.0, 'delay': 0.0}
+
+
+                    # --- Actualizar el valor espec\u00EDfico de la m\u00E9trica ---
+                    # Los valores en self.link_metrics['delay'] est\u00E1n en SEGUNDOS
+                    # Los valores en self.link_metrics['packet_loss'] est\u00E1n en FRACCI\u00D3N [0, 1]
+                    # La 'load' est\u00E1 normalizada [0, 1]
+
+
+                    if param_name == 'delay':
+                        # value viene en ms, convertir a segundos
+                        try:
+                            delay_seconds = float(value) / 1000.0
+                            self.monitor.link_metrics[src_dpid][src_port]['delay'] = delay_seconds
+                            self.monitor.manual_metrics_set[(src_dpid, src_port, 'delay')] = True
+                            self.logger.info("M\u00E9trica de delay actualizada para enlace %d-%d (Puerto %d) a %.3fms",
+                                             src_dpid, dst_dpid, src_port, delay_seconds * 1000)
+                        except (ValueError, TypeError):
+                             self.logger.error("Valor inv\u00E1lido para delay: %s", value)
+                             # Opcional: enviar respuesta de error HTTP
+
+                    elif param_name == 'loss':
+                         # value viene en %, convertir a fracci\u00F3n [0, 1]
+                         try:
+                             packet_loss_fraction = float(value) / 100.0
+                             # Asegurar que est\u00E9 en el rango [0, 1]
+                             packet_loss_fraction = max(0.0, min(1.0, packet_loss_fraction))
+                             self.monitor.link_metrics[src_dpid][src_port]['packet_loss'] = packet_loss_fraction
+                             self.monitor.manual_metrics_set[(src_dpid, src_port, 'packet_loss_fraction')] = True
+                             self.logger.info("M\u00E9trica de loss actualizada para enlace %d-%d (Puerto %d) a %.2f%%",
+                                             src_dpid, dst_dpid, src_port, packet_loss_fraction * 100)
+                         except (ValueError, TypeError):
+                             self.logger.error("Valor inv\u00E1lido para loss: %s", value)
+                             # Opcional: enviar respuesta de error HTTP
+
+                    elif param_name == 'bw':
+                         # El ancho de banda (bw) generalmente no se almacena directamente en link_metrics
+                         # ya que 'load' es una utilizaci\u00F3n. Si necesitas usar el BW configurado
+                         # en el algoritmo (ej. para la heur\u00EDstica de ancho de banda),
+                         # necesitar\u00EDas un diccionario separado en el monitor (ej. self.configured_bw)
+                         # donde guardar\u00EDas { (dpid, port): bw_in_bps }.
+                         # Por ahora, solo logueamos que la notificaci\u00F3n de BW fue recibida.
+                         self.logger.warning("Notificaci\u00F3n BW recibida para enlace %d-%d. Considerar guardar BW configurado por separado.", src_dpid, dst_dpid)
+
+                dpid1, dpid2 = sorted((src_dpid, dst_dpid)) # Obtener los DPIDs ordenados
+                if (dpid1 == 14 and dpid2 == 15):
+                    self.logger.info("--- METRICAS ACTUALIZADAS (por notificaci\u00F3n) para enlace 14-15/15-14 ---")
+
+                    # Obtener las m\u00E9tricas actualizadas para los puertos relevantes
+                    # Sabemos que 15-eth2 <=> 14-eth3
+                    metrics_15_eth2 = self.monitor.link_metrics.get(15, {}).get(2, {})
+                    metrics_14_eth3 = self.monitor.link_metrics.get(14, {}).get(3, {})
+
+                    if metrics_15_eth2:
+                        self.logger.info("  Enlace 15 -> 14 (Puerto 15-eth2):")
+                        self.logger.info("    Delay: %.3f ms", metrics_15_eth2.get('delay', 0.0) * 1000)
+                        self.logger.info("    Loss: %.2f %%", metrics_15_eth2.get('packet_loss', 0.0) * 100)
+                        self.logger.info("    Load: %.6f", metrics_15_eth2.get('load', 0.0))
+                    else:
+                        self.logger.info("  M\u00E9tricas para 15-eth2 no disponibles en link_metrics.")
+
+
+                    if metrics_14_eth3:
+                         self.logger.info("  Enlace 14 -> 15 (Puerto 14-eth3):")
+                         self.logger.info("    Delay: %.3f ms", metrics_14_eth3.get('delay', 0.0) * 1000)
+                         self.logger.info("    Loss: %.2f %%", metrics_14_eth3.get('packet_loss', 0.0) * 100)
+                         self.logger.info("    Load: %.6f", metrics_14_eth3.get('load', 0.0))
+                    else:
+                         self.logger.info("  M\u00E9tricas para 14-eth3 no disponibles en link_metrics.")
+
+                    self.logger.info("--------------------------------------------------------")
+                # --- Fin del bloque de logueo espec\u00EDfico ---
+
+                
+                status = '200 OK'
+                headers = [('Content-Type', 'application/json')]
+                start_response(status, headers)
+                return [json.dumps({"status": "success", "message": "Command received"}).encode('utf-8')]
+
+            except Exception as e:
+                self.logger.error("Error procesando comando HTTP: %s", e)
+                status = '500 Internal Server Error'
+                headers = [('Content-Type', 'application/json')]
+                start_response(status, headers)
+                return [json.dumps({"status": "error", "message": str(e)}).encode('utf-8')]
         else:
             # Otros m\u00E9todos o rutas no soportadas
             status = '404 Not Found'
@@ -164,7 +292,9 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.experiment_snapshot = 4    
         self.experiment_runs     = 5
 
-
+        # --- \u00A1Nuevo! Diccionario para rastrear m\u00E9tricas establecidas manualmente ---
+        # Clave: (dpid, port_no, param_name) , Valor: True
+        self.manual_metrics_set = {}
 
 
     def get_network_snapshot(self):
@@ -493,12 +623,21 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         if dpid in self.echo_timestamps:
             rtt = time.time() - self.echo_timestamps[dpid]
             delay = rtt / 2
-            # Actualiza el delay para cada puerto del switch (se podría ajustar para hacerlo por puerto)
+            # Actualiza el delay para cada puerto del switch
             if dpid in self.link_metrics:
-                for port in self.link_metrics[dpid]:
-                    self.link_metrics[dpid][port]['delay'] = delay
-            self.logger.info("Delay actualizado para dpid %s: %.3f ms", dpid, delay * 1000)
-            del self.echo_timestamps[dpid]
+                for port in list(self.link_metrics[dpid].keys()): # Iterar sobre una copia de las claves
+                    # --- \u00A1Nuevo! Verificar si el delay de este puerto fue establecido manualmente ---
+                    if (dpid, port, 'delay') in self.manual_metrics_set:
+                        self.logger.debug("MONITOR: Saltando actualizaci\u00F3n autom\u00E1tica de delay para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
+                        continue # Saltar la actualizaci\u00F3n autom\u00E1tica para este puerto/m\u00E9trica
+
+                    # --- Fin de la verificaci\u00F3n manual ---
+
+                    self.link_metrics[dpid][port]['delay'] = delay # \u00A1Actualizaci\u00F3n autom\u00E1tica solo si no es manual!
+                    self.logger.debug("MONITOR: Delay actualizado autom\u00E1ticamente para %d-%d (Puerto %d): %.3f ms", dpid, port, port, delay * 1000)
+
+        self.logger.info("Delay promedio actualizado para dpid %s (basado en eco): %.3f ms", dpid, delay * 1000)
+        del self.echo_timestamps[dpid]
 
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
@@ -510,14 +649,13 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         if dpid not in self.last_stats:
             self.last_stats[dpid] = {}
 
-        self.logger.info("=== Estadísticas del switch %016x ===", dpid)
+        self.logger.info("=== Estad\u00EDsticas del switch %016x ===", dpid)
         self.logger.info("Port     Load       Delay (ms)  Packet Loss (%)")
         self.logger.info("------   --------   ----------  --------------")
 
         for stat in body:
             port = stat.port_no
 
-            # Inicializar métricas si el puerto no está registrado
             if port not in self.link_metrics[dpid]:
                 self.link_metrics[dpid][port] = {
                     'load': 0.0,
@@ -525,7 +663,6 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                     'delay': 0.0
                 }
 
-            # Calcular Load
             if port in self.last_stats[dpid]:
                 prev_stat = self.last_stats[dpid][port]
                 tx_diff = stat.tx_bytes - prev_stat.tx_bytes
@@ -533,30 +670,52 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             else:
                 load = 0.0
 
-            # Calcular Packet Loss
+            # packet_loss se calcula a partir de las estad\u00EDsticas recibidas (rx_errors, rx_packets)
             total_pkts = stat.rx_packets + stat.rx_errors
-            packet_loss = (stat.rx_errors / float(total_pkts)) if total_pkts > 0 else 0.0
+            calculated_packet_loss = (stat.rx_errors / float(total_pkts)) if total_pkts > 0 else 0.0
 
-            # Obtener Delay previamente calculado
-            delay = self.link_metrics[dpid][port]['delay'] if port in self.link_metrics[dpid] else 0.0
+            # --- Actualizar self.link_metrics respetando m\u00E9tricas manuales ---
 
-            # Guardar métricas en el diccionario
+            # Actualizar Load (asumimos que Load siempre se mide)
             self.link_metrics[dpid][port]['load'] = load
-            self.link_metrics[dpid][port]['packet_loss'] = packet_loss
-            self.link_metrics[dpid][port]['delay'] = delay
 
-            # Actualizar los máximos observados
-            if load > self.max_load:
-                self.max_load = load
-            if delay > self.max_delay:
-                self.max_delay = delay
-            if packet_loss > self.max_packet_loss:
-                self.max_packet_loss = packet_loss
+            # Actualizar Packet Loss solo si no est\u00E1 marcado como manual
+            if (dpid, port, 'packet_loss') in self.manual_metrics_set:
+                self.logger.debug("MONITOR: Saltando actualizaci\u00F3n autom\u00E1tica de packet_loss para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
+            else:
+                 self.link_metrics[dpid][port]['packet_loss'] = calculated_packet_loss
+                 self.logger.debug("MONITOR: Packet_loss actualizado autom\u00E1ticamente para %d-%d (Puerto %d): %.6f", dpid, port, port, calculated_packet_loss)
 
-            # Imprimir métricas en formato claro
-            self.logger.info("%6d   %8.6f   %10.3f   %14.6f", port, load, delay * 1000, packet_loss * 100)
+            # Retardo (delay) se actualiza en _echo_reply_handler o por notificaci\u00F3n manual.
+            # Aqu\u00ED solo nos aseguramos de no sobrescribir si fue manual al "guardarlo" de nuevo.
+            # Obtenemos el valor actual de las m\u00E9tricas (ya sea manual o medido por eco)
+            current_delay_in_metrics = self.link_metrics.get(dpid, {}).get(port, {}).get('delay', 0.0)
 
-            # Actualizar los últimos datos de este puerto
+            if (dpid, port, 'delay') in self.manual_metrics_set:
+                 self.logger.debug("MONITOR: Saltando guardado autom\u00E1tico de delay para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
+                 # No se guarda de nuevo el delay si est\u00E1 marcado como manual
+            else:
+                # Si no es manual, guardamos el delay que ya estaba (probablemente del \u00FAltimo eco)
+                self.link_metrics[dpid][port]['delay'] = current_delay_in_metrics
+                self.logger.debug("MONITOR: Delay guardado autom\u00E1ticamente para %d-%d (Puerto %d): %.3f ms", dpid, port, port, current_delay_in_metrics * 1000)
+
+
+            # --- Imprimir m\u00E9tricas y actualizar m\u00E1ximos usando los valores FINALES de self.link_metrics ---
+            final_load = self.link_metrics.get(dpid, {}).get(port, {}).get('load', 0.0)
+            final_packet_loss = self.link_metrics.get(dpid, {}).get(port, {}).get('packet_loss', 0.0)
+            final_delay = self.link_metrics.get(dpid, {}).get(port, {}).get('delay', 0.0)
+
+            self.logger.info("%6d   %8.6f   %10.3f   %14.6f", port, final_load, final_delay * 1000, final_packet_loss * 100)
+
+            if final_load > self.max_load:
+                 self.max_load = final_load
+            if final_delay > self.max_delay:
+                 self.max_delay = final_delay
+            if final_packet_loss > self.max_packet_loss:
+                 self.max_packet_loss = final_packet_loss
+
+
+            # Actualizar los \u00FAltimos datos de este puerto
             self.last_stats[dpid][port] = stat
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ import json
 import eventlet
 import collections
 import xmlrpc.client
+import threading
 
 
 app = Flask(__name__)
@@ -18,6 +19,8 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 RYU_CONTROL_URL = "http://127.0.0.1:8080/control"
 MININET_RPC_URL = "http://127.0.0.1:8000/"
 mininet_rpc = xmlrpc.client.ServerProxy(MININET_RPC_URL, allow_none=True) # Cliente RPC
+
+RYU_NOTIFY_PARAM_URL = "http://127.0.0.1:8080/notify_param_change"
 
 # Variable global para almacenar los datos actualizados de la red.
 network_data = {
@@ -75,7 +78,27 @@ def handle_control_command(data):
             success = mininet_rpc.set_link_param(src_dpid, dst_dpid, param_name, value)
             if success:
                 print(f"RPC: Parámetro de enlace {param_name} actualizado en Mininet.")
-                # Opcional: Enviar un mensaje al frontend para confirmar
+
+
+                notification_payload = {
+                    'src_dpid': src_dpid,
+                    'dst_dpid': dst_dpid,
+                    'param_name': param_name,
+                    'value': value
+                }
+                print(f"Flask: Iniciando hilo para enviar notificaci\u00F3n a Ryu: {notification_payload}")
+
+                def send_ryu_notification(url, data):
+                         try:
+                             requests.post(url, json=data, timeout=1) # A\u00F1adir timeout
+                         except requests.exceptions.RequestException as e:
+                              print(f"Error enviando notificaci\u00F3n a Ryu: {e}") # Log en el servidor Flask
+                
+                # Enviar a Ryu en un hilo separado
+                notification_thread = threading.Thread(target=send_ryu_notification, args=(RYU_NOTIFY_PARAM_URL, notification_payload))
+                notification_thread.start()
+
+
                 socketio.emit('control_response', {"status": "success", "message": f"Parámetro {param_name} de enlace {src_dpid}-{dst_dpid} cambiado."})
             else:
                 print(f"RPC: Fallo al actualizar parámetro {param_name} en Mininet.")

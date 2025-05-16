@@ -151,7 +151,7 @@ def topologia_20():
         hosts.append(h)
 
     info('*** Conectar cada host a su switch con TCLink (100Mbps, 2ms, 0% loss)\n')
-    link_conf = dict(bw=100, delay='2ms', loss=0)
+    link_conf = dict(bw=100, delay='5ms', loss=0)
     for sw, h in zip(switches, hosts):
         net.addLink(h, sw, cls=TCLink, **link_conf)
 
