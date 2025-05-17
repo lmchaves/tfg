@@ -347,6 +347,10 @@
        }));
        console.log("### Array 'links' global actualizado:", links);
 
+      simulation.nodes(nodes); // Asegurarse de que la simulaci\u00F3n conoce los nodos actualizados
+      simulation.force("link").links(links); // Actualizar la fuerza de enlaces con el nuevo array 'links'
+      simulation.alpha(1).restart();
+
 
       // 1) Actualiza el contador
       const counterEl = document.getElementById('snapshot-counter');
