@@ -170,6 +170,8 @@
         packet_loss: l.packet_loss
       }));
 
+      console.log("### Enlaces procesados para D3:", links);
+
       simulation = d3.forceSimulation(nodes)
         .force("link", d3.forceLink(links).id(d => d.id).distance(100))
         .force("charge", d3.forceManyBody().strength(-400))
@@ -181,16 +183,36 @@
         .attr("class", "link")
         .attr("stroke-width", d => d.load * 10)
 
-      linkElements.on("click", function(event, d) {
-        console.log("Enlace clicado:", d); 
+      linkElements.on("click", function(event, i) {
+
+        const clickedElement = d3.select(this).data()[0];
+
+        const sourceId = clickedElement.source.id; 
+        const targetId = clickedElement.target.id;
+
+        const clickedLinkData = links.find(link =>
+             (link.source.id === sourceId && link.target.id === targetId) ||
+             (link.source.id === targetId && link.target.id === sourceId) // Buscar en ambos sentidos
+        );
+
+        console.log("### Enlace clicado (buscado en array 'links' global):", clickedLinkData);
 
         linkInfoBox.style("display", "block");
 
-        linkDetailsDiv.html(`
-            <p><strong>Carga:</strong> ${(d.load * 100).toFixed(2)} %</p>
-            <p><strong>Delay:</strong> ${(d.delay * 1000).toFixed(2)} ms</p>
-            <p><strong>Pérdida de Paquetes:</strong> ${(d.packet_loss * 100).toFixed(2)} %</p>
-        `);
+        if (clickedLinkData) {
+            const loadPercent = !isNaN(clickedLinkData.load) ? (clickedLinkData.load * 100).toFixed(7) : "N/A";
+            const delayMs = !isNaN(clickedLinkData.delay) ? (clickedLinkData.delay * 1000).toFixed(7) : "N/A";
+            const packetLossPercent = !isNaN(clickedLinkData.packet_loss) ? (clickedLinkData.packet_loss * 100).toFixed(2) : "N/A";
+
+            linkDetailsDiv.html(`
+                <p><strong>Enlace:</strong> ${sourceId} &rarr; ${targetId}</p>
+                <p><strong>Carga:</strong> ${loadPercent} %</p> <p><strong>Delay:</strong> ${delayMs} ms</p>
+                <p><strong>P\u00E9rdida de Paquetes:</strong> ${packetLossPercent} %</p>
+            `);
+        } else {
+             linkDetailsDiv.html(`<p>No se encontraron detalles actualizados para este enlace.</p>`);
+        }
+
 
         linkElements.classed("selected-link", false); 
         d3.select(this).classed("selected-link", true); 
@@ -311,6 +333,21 @@
 
 
     socket.on('update_topology', function(data) {
+
+      // Actualizmos los datos
+      console.log('### Datos de actualizaci\u00F3n recibidos en front:', data);
+
+      let nodeMap = new Map(nodes.map(n => [n.id, n])); // Necesitas el nodeMap actualizado si la topolog\u00EDa cambiara (aunque asumimos que no)
+       links = data.links.map(l => ({
+           source: nodeMap.get(l.src),
+           target: nodeMap.get(l.dst),
+           load: l.load,
+           delay: l.delay,
+           packet_loss: l.packet_loss
+       }));
+       console.log("### Array 'links' global actualizado:", links);
+
+
       // 1) Actualiza el contador
       const counterEl = document.getElementById('snapshot-counter');
       if (counterEl) {
@@ -337,6 +374,24 @@
 
       // 4) Resalta enlaces
       highlightBestPath(data.best_path);
+
+
+      // 6) \u00A1Opcional pero recomendado! Actualizar propiedades visuales de los enlaces
+      // que dependen de las m\u00E9tricas (como el ancho del trazo o el color)
+      linkElements
+          .data(links) // Re-enlazar los elementos existentes al array 'links' actualizado
+          .attr("stroke-width", d => Math.max(1, d.load * 20)) // Actualizar el ancho del trazo
+          // .style("stroke", d => d.load > 0.5 ? "orange" : "#999"); // Ejemplo: cambiar color si la carga es alta
+
+       // 7) \u00A1Opcional! Actualizar los tooltips (titles) con los nuevos datos
+       linkElements.select("title")
+           .text(d =>
+              `Enlace ${d.source.id}\u2192${d.target.id}\n` +
+              `Carga: ${(d.load*100).toFixed(1)}%\n` +
+              `Delay: ${(d.delay*1000).toFixed(1)}ms\n` +
+              `P\u00E9rdida: ${(d.packet_loss*100).toFixed(1)}%`
+            );
+      
     });
 
 
