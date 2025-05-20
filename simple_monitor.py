@@ -171,7 +171,7 @@ class ControlHttpApp(object):
                              # Asegurar que est\u00E9 en el rango [0, 1]
                              packet_loss_fraction = max(0.0, min(1.0, packet_loss_fraction))
                              self.monitor.link_metrics[src_dpid][src_port]['packet_loss'] = packet_loss_fraction
-                             self.monitor.manual_metrics_set[(src_dpid, src_port, 'packet_loss_fraction')] = True
+                             self.monitor.manual_metrics_set[(src_dpid, src_port, 'packet_loss')] = True
                              self.logger.info("M\u00E9trica de loss actualizada para enlace %d-%d (Puerto %d) a %.2f%%",
                                              src_dpid, dst_dpid, src_port, packet_loss_fraction * 100)
                          except (ValueError, TypeError):
@@ -187,6 +187,34 @@ class ControlHttpApp(object):
                          # Por ahora, solo logueamos que la notificaci\u00F3n de BW fue recibida.
                          self.logger.warning("Notificaci\u00F3n BW recibida para enlace %d-%d. Considerar guardar BW configurado por separado.", src_dpid, dst_dpid)
 
+                
+                    # Buscar en el otro extremo del enlace es simétrico
+                    dst_port = None
+                    for link in self.monitor.topology.get('links', []):
+                        if link[0] == dst_dpid and link[1] == src_dpid:
+                            dst_port = link[2].get('port')
+                            break
+
+                    if dst_port is not None and dst_dpid in self.monitor.link_metrics and dst_port in self.monitor.link_metrics[dst_dpid]:
+                         if param_name == 'delay':
+                              self.monitor.link_metrics[dst_dpid][dst_port]['delay'] = delay_seconds
+                              self.logger.info("M\u00E9trica de delay actualizada (otro extremo) para enlace %s-%s (Puerto %d) a %.3fms",
+                                               dst_dpid, src_dpid, dst_port, delay_seconds * 1000)
+                         elif param_name == 'loss':
+                              self.monitor.link_metrics[dst_dpid][dst_port]['packet_loss'] = packet_loss_fraction
+                              self.logger.info("M\u00E9trica de loss actualizada (otro extremo) para enlace %s-%s (Puerto %d) a %.2f%%",
+                                               dst_dpid, src_dpid, dst_port, packet_loss_fraction * 100)
+                         # Repetir para bw si es necesario
+
+                    else:
+                        self.logger.warning("No se encontr\u00F3 el puerto destino (%s) o su entrada en link_metrics para actualizar m\u00E9tricas sim\u00E9tricas.", dst_port)
+
+
+                else:
+                    self.logger.warning("No se encontr\u00F3 la entrada para DPID %s, Puerto %s en self.monitor.link_metrics para actualizar.", src_dpid, src_port)
+
+                
+                
                 dpid1, dpid2 = sorted((src_dpid, dst_dpid)) # Obtener los DPIDs ordenados
                 if (dpid1 == 14 and dpid2 == 15):
                     self.logger.info("--- METRICAS ACTUALIZADAS (por notificaci\u00F3n) para enlace 14-15/15-14 ---")
@@ -290,7 +318,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.logger.info("Servidor de control HTTP iniciado en 127.0.0.1:8080")
 
         self.experiment_snapshot = 4    
-        self.experiment_runs     = 5
+        self.experiment_runs     = 1
 
         # --- \u00A1Nuevo! Diccionario para rastrear m\u00E9tricas establecidas manualmente ---
         # Clave: (dpid, port_no, param_name) , Valor: True
@@ -573,10 +601,10 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         df['mean'] = mean_cost
                         df['std'] = std_cost
 
-                        filename = f"aco_experiment_snapshot{self.snapshot_counter}.csv"
+                        filename = f"conf_{self.snapshot_counter}.csv"
                         df.to_csv(filename, index=False)
                         self.logger.info("Resultados del experimento guardados en: %s", filename)
-                    else:
+                    else:                     
                         best_path, best_cost = self.run_llbaco(snapshot)  
 
                         dpids = self.topology['switches']      
@@ -585,9 +613,9 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
 
                         # Enviar snapshot a Flask
                         try:
-                            requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
+                           requests.post("http://127.0.0.1:5000/update", json=data_for_flask)
                         except Exception as e:
-                            self.logger.error("Error enviando datos a Flask: %s", e)
+                           self.logger.error("Error enviando datos a Flask: %s", e)
 
                 # Esperar antes de la siguiente iteración
                 hub.sleep(self.monitor_interval)
