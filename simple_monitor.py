@@ -318,7 +318,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.logger.info("Servidor de control HTTP iniciado en 127.0.0.1:8080")
 
         self.experiment_snapshot = 4    
-        self.experiment_runs     = 1
+        self.experiment_runs     = 30
 
         # --- \u00A1Nuevo! Diccionario para rastrear m\u00E9tricas establecidas manualmente ---
         # Clave: (dpid, port_no, param_name) , Valor: True
@@ -387,7 +387,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ejecutar el algoritmo LLBACO
         best_path, best_cost = llbaco_aux.run_aco_llbaco(
         nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100, 
-        alpha=1.0, beta=1.0, gamma=1.0, rho=0.5,Q=1.0, high_cost=1000)
+        alpha=1.0, beta=1.0, gamma=1.0, rho=0.99,Q=1.0, high_cost=1000, q0=0.9, phi=0.1)
 
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.6f", best_path, best_cost)
