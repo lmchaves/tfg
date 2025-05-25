@@ -74,7 +74,7 @@
 
 
     <div id="link-param-control" class="mb-4 p-3 border rounded bg-light">
-      <h3 class="mb-3">Control de Par\u00E1metros de Enlace</h3>
+      <h3 class="mb-3">Control de Parámetros de Enlace</h3>
       <div class="row g-3">
         <div class="col-auto">
           <label for="param-link-src-dpid" class="form-label">Origen (DPID):</label>
@@ -207,7 +207,7 @@
             linkDetailsDiv.html(`
                 <p><strong>Enlace:</strong> ${sourceId} &rarr; ${targetId}</p>
                 <p><strong>Carga:</strong> ${loadPercent} %</p> <p><strong>Delay:</strong> ${delayMs} ms</p>
-                <p><strong>P\u00E9rdida de Paquetes:</strong> ${packetLossPercent} %</p>
+                <p><strong>Pérrdida de Paquetes:</strong> ${packetLossPercent} %</p>
             `);
         } else {
              linkDetailsDiv.html(`<p>No se encontraron detalles actualizados para este enlace.</p>`);
@@ -316,7 +316,7 @@
         const dstDpid = parseInt(document.getElementById('dst-dpid').value, 10);
 
         if (isNaN(srcDpid) || srcDpid <= 0 || isNaN(dstDpid) || dstDpid <= 0) {
-            alert("Por favor, ingrese DPIDs v\u00E1lidos (n\u00FAmeros mayores que 0).");
+            alert("Por favor, ingrese DPIDs válidos (números mayores que 0).");
             return;
         }
 
@@ -335,9 +335,9 @@
     socket.on('update_topology', function(data) {
 
       // Actualizmos los datos
-      console.log('### Datos de actualizaci\u00F3n recibidos en front:', data);
+      console.log('### Datos de actualización recibidos en front:', data);
 
-      let nodeMap = new Map(nodes.map(n => [n.id, n])); // Necesitas el nodeMap actualizado si la topolog\u00EDa cambiara (aunque asumimos que no)
+      let nodeMap = new Map(nodes.map(n => [n.id, n])); // Necesitas el nodeMap actualizado si la topología cambiara (aunque asumimos que no)
        links = data.links.map(l => ({
            source: nodeMap.get(l.src),
            target: nodeMap.get(l.dst),
@@ -347,7 +347,7 @@
        }));
        console.log("### Array 'links' global actualizado:", links);
 
-      simulation.nodes(nodes); // Asegurarse de que la simulaci\u00F3n conoce los nodos actualizados
+      simulation.nodes(nodes); // Asegurarse de que la simulación conoce los nodos actualizados
       simulation.force("link").links(links); // Actualizar la fuerza de enlaces con el nuevo array 'links'
       simulation.alpha(1).restart();
 
@@ -377,23 +377,21 @@
       }
 
       // 4) Resalta enlaces
-      highlightBestPath(data.best_path);
-
-
-      // 6) \u00A1Opcional pero recomendado! Actualizar propiedades visuales de los enlaces
-      // que dependen de las m\u00E9tricas (como el ancho del trazo o el color)
+      highlightBestPath(data.best_path);é
+      // 6) Actualizar propiedades visuales de los enlacesque dependen de las métricas 
+      // (como el ancho del trazo o el color)
       linkElements
           .data(links) // Re-enlazar los elementos existentes al array 'links' actualizado
           .attr("stroke-width", d => Math.max(1, d.load * 20)) // Actualizar el ancho del trazo
           // .style("stroke", d => d.load > 0.5 ? "orange" : "#999"); // Ejemplo: cambiar color si la carga es alta
 
-       // 7) \u00A1Opcional! Actualizar los tooltips (titles) con los nuevos datos
+       // 7) Actualizarcon los nuevos datos
        linkElements.select("title")
            .text(d =>
               `Enlace ${d.source.id}\u2192${d.target.id}\n` +
               `Carga: ${(d.load*100).toFixed(1)}%\n` +
               `Delay: ${(d.delay*1000).toFixed(1)}ms\n` +
-              `P\u00E9rdida: ${(d.packet_loss*100).toFixed(1)}%`
+              `Pérdida: ${(d.packet_loss*100).toFixed(1)}%`
             );
       
     });
@@ -427,18 +425,9 @@
     });
 
     document.getElementById('skip-button').addEventListener('click', () => {
-        sendControlCommand('skip', 1); // Saltar 1 instant\u00E1nea
+        sendControlCommand('skip', 1); 
     });
 
-    // Si a\u00F1adiste un input y un bot\u00F3n para saltar N pasos:
-    // document.getElementById('skip-multiple-button').addEventListener('click', () => {
-    //     const steps = parseInt(document.getElementById('skip-steps').value, 10);
-    //     if (!isNaN(steps) && steps > 0) {
-    //         sendControlCommand('skip', steps);
-    //     } else {
-    //         alert("Por favor, ingrese un n\u00FAmero v\u00E1lido de instant\u00E1neas para saltar.");
-    //     }
-    // });
 
     document.getElementById('set-endpoints-button').addEventListener('click', () => {
         sendEndpoints(); 

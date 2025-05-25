@@ -43,15 +43,15 @@ def get_topology():
 def update_data():
     """Actualiza los datos de la red recibidos del monitor de Ryu."""
     global network_data
-    network_data = request.get_json()  # Se espera el formato D3-friendly
+    network_data = request.get_json()  
     socketio.emit('update_topology', network_data)
     return jsonify({"status": "updated"})
 
 @socketio.on('control_command') 
 def handle_control_command(data):
     """
-    Recibe comandos de control del frontend y los env\u00EDa al monitor de Ryu.
-    Esta funci\u00F3n es llamada por el frontend v\u00EDa Socket.IO.
+    Recibe comandos de control del frontend y los envía al monitor de Ryu.
+    Esta función es llamada por el frontend vía Socket.IO.
     """
     print(f"Comando de control recibido del frontend: {data}")
     command = data.get('command') 
@@ -66,7 +66,7 @@ def handle_control_command(data):
                 print(f"Error al enviar comando a Ryu: {response.status_code} - {response.text}")
                 socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": response.text})
         except requests.exceptions.RequestException as e:
-            print(f"Error de conexi\u00F3n al enviar comando a Ryu: {e}")
+            print(f"Error de conexión al enviar comando a Ryu: {e}")
             socketio.emit('control_response', {"status": "error", "command": data.get('command'), "message": f"Connection error: {e}"})
     elif command == 'set_link_param':
         src_dpid = data.get('src_dpid')
@@ -86,13 +86,13 @@ def handle_control_command(data):
                     'param_name': param_name,
                     'value': value
                 }
-                print(f"Flask: Iniciando hilo para enviar notificaci\u00F3n a Ryu: {notification_payload}")
+                print(f"Flask: Iniciando hilo para enviar notificación a Ryu: {notification_payload}")
 
                 def send_ryu_notification(url, data):
                          try:
-                             requests.post(url, json=data, timeout=1) # A\u00F1adir timeout
+                             requests.post(url, json=data, timeout=1) 
                          except requests.exceptions.RequestException as e:
-                              print(f"Error enviando notificaci\u00F3n a Ryu: {e}") # Log en el servidor Flask
+                              print(f"Error enviando notificación a Ryu: {e}") 
                 
                 # Enviar a Ryu en un hilo separado
                 notification_thread = threading.Thread(target=send_ryu_notification, args=(RYU_NOTIFY_PARAM_URL, notification_payload))
