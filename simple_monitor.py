@@ -31,20 +31,20 @@ import eventlet.wsgi
 import eventlet 
 import eventlet.queue 
 import pandas as pd
+import time
 
-# Clase para la aplicaci\u00F3n WSGI que manejar\u00E1 las peticiones HTTP
+
 class ControlHttpApp(object):
     """
-    Aplicaci\u00F3n WSGI para recibir comandos de control.
+    Aplicación WSGI para recibir comandos de control.
     Guarda una referencia a la instancia del monitor para acceder a su cola.
     """
     def __init__(self, monitor_instance):
-        # Guardamos una referencia a la instancia de ExtendedMonitor
         self.monitor = monitor_instance
-        self.logger = monitor_instance.logger # Acceso al logger del monitor
+        self.logger = monitor_instance.logger 
 
     def __call__(self, environ, start_response):
-        # Este m\u00E9todo se llama en cada petici\u00F3n HTTP
+        # Este método se llama en cada petición HTTP
         path = environ.get('PATH_INFO', '')
         method = environ.get('REQUEST_METHOD', '')
 
@@ -59,7 +59,7 @@ class ControlHttpApp(object):
                 # Ponemos el comando en la cola de control del monitor
                 # Usamos self.monitor para acceder a la instancia
                 self.monitor.control_queue.put(command_data)
-                self.logger.info("Comando de control recibido v\u00EDa HTTP: %s", command_data)
+                self.logger.info("Comando de control recibido por HTTP: %s", command_data)
 
                 if command == 'continue' and self.monitor.paused and self.monitor._resume_event is not None:
 
@@ -110,29 +110,27 @@ class ControlHttpApp(object):
                 param_name = notification_data.get('param_name')
                 value = notification_data.get('value')
 
-                # Convertir DPIDs a int si vienen como otra cosa (Flask los env\u00EDa como int, pero mejor ser robusto)
+                # Convertir DPIDs a int si vienen como otra cosa (aunque Flask los envía como int, pero mejor ser robusto)
                 try:
                     src_dpid = int(src_dpid)
                     dst_dpid = int(dst_dpid)
                 except (ValueError, TypeError):
-                    self.logger.error("Notificaci\u00F3n con DPIDs inv\u00E1lidos: src=%s, dst=%s", src_dpid, dst_dpid)
+                    self.logger.error("Notificación con DPIDs inválidos: src=%s, dst=%s", src_dpid, dst_dpid)
                     status = '400 Bad Request'
                     headers = [('Content-Type', 'application/json')]
                     start_response(status, headers)
                     return [json.dumps({"status": "error", "message": "Invalid source or destination DPID"}).encode('utf-8')]
 
 
-                self.logger.info("Notificaci\u00F3n de cambio de par\u00E1metro recibida: Enlace %d-%d, %s = %s",
+                self.logger.info("Notificación de cambio de parámetro recibida: Enlace %d-%d, %s = %s",
                                  src_dpid, dst_dpid, param_name, value)
 
-                # --- \u00A1Actualizar self.monitor.link_metrics directamente! ---
-                # Necesitas encontrar el puerto correcto en src_dpid para el enlace a dst_dpid
-                # Iterar sobre los enlaces de la topolog\u00EDa (que el monitor actualiza peri\u00F3dicamente)
+                # --- A1Actualizar self.monitor.link_metrics directamente ---
+
                 src_port = None
-                # Los enlaces en self.monitor.topology['links'] est\u00E1n como (src_dpid, dst_dpid, {'port': src_port})
-                # Iterar sobre una copia si el hilo principal podr\u00EDa modificarlo
+                # Los enlaces en self.monitor.topology['links'] están como (src_dpid, dst_dpid, {'port': src_port})
+                # Iterar sobre una copia si el hilo principal podría  modificarlo
                 for link in list(self.monitor.topology.get('links', [])):
-                    # link[0] es src_dpid, link[1] es dst_dpid, link[2]['port'] es el puerto en src
                     if link[0] == src_dpid and link[1] == dst_dpid:
                         src_port = link[2].get('port')
                         break
@@ -142,14 +140,11 @@ class ControlHttpApp(object):
                     if src_dpid not in self.monitor.link_metrics:
                         self.monitor.link_metrics[src_dpid] = {}
                     if src_port not in self.monitor.link_metrics[src_dpid]:
-                         # Inicializar las m\u00E9tricas para este puerto si a\u00FAn no existen
+                         # Inicializar las métricas para este puerto si aún no existen
                          self.monitor.link_metrics[src_dpid][src_port] = {'load': 0.0, 'packet_loss': 0.0, 'delay': 0.0}
 
 
-                    # --- Actualizar el valor espec\u00EDfico de la m\u00E9trica ---
-                    # Los valores en self.link_metrics['delay'] est\u00E1n en SEGUNDOS
-                    # Los valores en self.link_metrics['packet_loss'] est\u00E1n en FRACCI\u00D3N [0, 1]
-                    # La 'load' est\u00E1 normalizada [0, 1]
+                    # --- Actualizar el valor específico de la métrica ---
 
 
                     if param_name == 'delay':
@@ -162,13 +157,12 @@ class ControlHttpApp(object):
                                              src_dpid, dst_dpid, src_port, delay_seconds * 1000)
                         except (ValueError, TypeError):
                              self.logger.error("Valor inv\u00E1lido para delay: %s", value)
-                             # Opcional: enviar respuesta de error HTTP
 
                     elif param_name == 'loss':
-                         # value viene en %, convertir a fracci\u00F3n [0, 1]
+                         # value viene en %, convertir a fracción [0, 1]
                          try:
                              packet_loss_fraction = float(value) / 100.0
-                             # Asegurar que est\u00E9 en el rango [0, 1]
+                             # Asegurar que está en el rango [0, 1]
                              packet_loss_fraction = max(0.0, min(1.0, packet_loss_fraction))
                              self.monitor.link_metrics[src_dpid][src_port]['packet_loss'] = packet_loss_fraction
                              self.monitor.manual_metrics_set[(src_dpid, src_port, 'packet_loss')] = True
@@ -176,15 +170,9 @@ class ControlHttpApp(object):
                                              src_dpid, dst_dpid, src_port, packet_loss_fraction * 100)
                          except (ValueError, TypeError):
                              self.logger.error("Valor inv\u00E1lido para loss: %s", value)
-                             # Opcional: enviar respuesta de error HTTP
 
                     elif param_name == 'bw':
-                         # El ancho de banda (bw) generalmente no se almacena directamente en link_metrics
-                         # ya que 'load' es una utilizaci\u00F3n. Si necesitas usar el BW configurado
-                         # en el algoritmo (ej. para la heur\u00EDstica de ancho de banda),
-                         # necesitar\u00EDas un diccionario separado en el monitor (ej. self.configured_bw)
-                         # donde guardar\u00EDas { (dpid, port): bw_in_bps }.
-                         # Por ahora, solo logueamos que la notificaci\u00F3n de BW fue recibida.
+
                          self.logger.warning("Notificaci\u00F3n BW recibida para enlace %d-%d. Considerar guardar BW configurado por separado.", src_dpid, dst_dpid)
 
                 
@@ -317,7 +305,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.control_server_thread = hub.spawn(eventlet.wsgi.server, eventlet.listen(('127.0.0.1', 8080)), control_app_instance)
         self.logger.info("Servidor de control HTTP iniciado en 127.0.0.1:8080")
 
-        self.experiment_snapshot = 4    
+        self.experiment_snapshot = 5 
         self.experiment_runs     = 30
 
         # --- \u00A1Nuevo! Diccionario para rastrear m\u00E9tricas establecidas manualmente ---
@@ -387,7 +375,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Ejecutar el algoritmo LLBACO
         best_path, best_cost = llbaco_aux.run_aco_llbaco(
         nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100, 
-        alpha=1.0, beta=1.0, gamma=1.0, rho=0.99,Q=1.0, high_cost=1000, q0=0.9, phi=0.1)
+        alpha=1.0, beta=1.0, gamma=1.0, rho=0.50,Q=1.0, high_cost=1000, q0=0.5, phi=0.5)
 
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.6f", best_path, best_cost)
@@ -583,7 +571,11 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         costs = []
                         paths = []
                         for i in range(self.experiment_runs):
+                            start_time_aco = time.time()
                             path_i, cost_i = self.run_llbaco(snapshot)
+                            end_time_aco = time.time()
+                            time_aco = end_time_aco - start_time_aco
+
                             costs.append(cost_i)
                             paths.append(" → ".join(map(str, path_i)))
                             self.logger.debug("Run %2d/%2d: cost=%.6f", i+1, self.experiment_runs, cost_i)
@@ -600,6 +592,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         })
                         df['mean'] = mean_cost
                         df['std'] = std_cost
+                        df['time']= time_aco
 
                         filename = f"conf_{self.snapshot_counter}.csv"
                         df.to_csv(filename, index=False)
