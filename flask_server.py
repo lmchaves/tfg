@@ -10,7 +10,7 @@ import eventlet
 import collections
 import xmlrpc.client
 import threading
-
+import datetime
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -131,6 +131,18 @@ def handle_control_command(data):
             print(f"ERROR: Conexión RPC fallida o error inesperado: {e}")
             socketio.emit('control_response', {"status": "error", "message": f"Error de conexión RPC o inesperado: {e}. Asegúrate que Mininet RPC está corriendo."})
 
+    elif command == 'save_snapshot':
+        global network_data # Acceder a la variable global
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"network_snapshot_{timestamp}.json"
+        try:
+            with open(filename, 'w') as f:
+                json.dump(network_data, f, indent=4)
+            print(f"Instantánea de la red guardada en: {filename}")
+            socketio.emit('control_response', {"status": "success", "command": "save_snapshot", "message": f"Instantánea guardada como {filename}"})
+        except Exception as e:
+            print(f"Error al guardar la instantánea: {e}")
+            socketio.emit('control_response', {"status": "error", "command": "save_snapshot", "message": f"Error al guardar la instantánea: {e}"})
     else:
         print(f"Comando desconocido: {command}")
         

@@ -52,7 +52,7 @@
   <div class="control-buttons mb-4">
      <button id="pause-button" class="btn btn-secondary me-2">Pausa</button> 
      <button id="continue-button" class="btn btn-primary me-2">Continuar</button> 
-     <button id="skip-button" class="btn btn-info">Saltar 1</button> 
+     <button id="save-snapshot-button" class="btn btn-success">Guardar Instantánea</button>
   </div>
 
   <div id="endpoint-selection" class="mb-4 p-3 border rounded bg-light"> <h3 class="mb-3">Seleccionar Origen y Destino</h3> <div class="row g-3"> <div class="col-auto"> <label for="src-dpid" class="form-label">Origen (DPID):</label> </div>
@@ -424,9 +424,7 @@
         sendControlCommand('continue');
     });
 
-    document.getElementById('skip-button').addEventListener('click', () => {
-        sendControlCommand('skip', 1); 
-    });
+
 
 
     document.getElementById('set-endpoints-button').addEventListener('click', () => {
@@ -479,6 +477,11 @@
             duration_s: durationS
         });
         console.log(`Enviando comando run_iperf_traffic: ${srcHostName} a ${dstIp} con ${bandwidthMbps}Mbps por ${durationS}s`);
+    });
+
+    document.getElementById('save-snapshot-button').addEventListener('click', () => {
+      sendControlCommand('save_snapshot'); // Envía un nuevo comando
+      console.log("### Solicitud para guardar instantánea enviada.");
     });
 
   </script>
