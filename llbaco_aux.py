@@ -85,6 +85,64 @@ def build_cost_load_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost
     cost_matrix[np.isinf(cost_matrix)] = high_cost
     return cost_matrix, load_matrix
 
+def build_cost_load_matrix2(
+    nodes: list,             # Lista de IDs de switches (DPIDs) como en tu JSON "switches"
+    links_data_json: list,   # La lista de diccionarios de enlaces de tu JSON "links"
+    delta: float = 0.5,      # Parámetro delta para la función de costo
+    high_cost: float = 1e9   # Un valor alto para representar enlaces no existentes o muy costosos
+):
+    """
+    Construye las matrices de costo y carga a partir de la lista de enlaces del JSON.
+
+    Args:
+        nodes (list): Lista de IDs de switches (DPIDs).
+        links_data_json (list): Lista de diccionarios de enlaces, cada uno con 'src', 'dst', 'load', 'delay', 'packet_loss'.
+        delta (float): Parámetro para la función de costo (ej. para ponderar la carga).
+        high_cost (float): Valor para enlaces inexistentes o inaccesibles.
+
+    Returns:
+        tuple: (cost_matrix, load_matrix) o (None, None) si hay un error.
+    """
+    if not nodes or not links_data_json:
+        print("Advertencia: No se proporcionaron nodos o enlaces para construir las matrices.")
+        return None, None
+
+    num_nodes = len(nodes)
+    # Mapeo de DPID a índice de matriz para acceso rápido
+    node_to_idx = {node: i for i, node in enumerate(nodes)} 
+
+    # Inicializar la matriz con high_cost para enlaces no definidos
+    cost_matrix = np.full((num_nodes, num_nodes), high_cost, dtype=float)
+    load_matrix = np.zeros((num_nodes, num_nodes), dtype=float)
+
+    # La diagonal a 0.0 (costo de un nodo a sí mismo)
+    np.fill_diagonal(cost_matrix, 0.0) 
+    np.fill_diagonal(load_matrix, 0.0)
+
+    for link_entry in links_data_json:
+        src_dpid = link_entry.get('src')
+        dst_dpid = link_entry.get('dst')
+        load = link_entry.get('load', 0.0)
+        delay = link_entry.get('delay', 0.0)
+        packet_loss = link_entry.get('packet_loss', 0.0)
+
+        # Asegurarse de que src y dst son válidos y están en la lista de nodos
+        if src_dpid not in node_to_idx or dst_dpid not in node_to_idx:
+            # print(f"Advertencia: Enlace ({src_dpid}-{dst_dpid}) en JSON no tiene nodos válidos en la lista de nodos. Saltando.")
+            continue # Salta este enlace si los nodos no están en la topología
+
+        src_idx = node_to_idx[src_dpid]
+        dst_idx = node_to_idx[dst_dpid]
+
+        # Calcular el costo usando la nueva función auxiliar
+        cost = calculate_link_cost(delay, packet_loss, delta)
+        
+        # Asignar a las matrices
+        cost_matrix[src_idx, dst_idx] = cost
+        load_matrix[src_idx, dst_idx] = load
+
+    return cost_matrix, load_matrix
+
 def calculate_heuristic_matrices(load_matrix, cost_matrix, high_cost=1000):
     """
     Calcula las matrices de heurŕistica (eta = 1/Load y mu = 1/Cost)
