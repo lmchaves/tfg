@@ -34,6 +34,7 @@ import pandas as pd
 import time
 
 
+
 class ControlHttpApp(object):
     """
     Aplicación WSGI para recibir comandos de control.
@@ -41,7 +42,7 @@ class ControlHttpApp(object):
     """
     def __init__(self, monitor_instance):
         self.monitor = monitor_instance
-        self.logger = monitor_instance.logger 
+        self.logger = monitor_instance.logger
 
     def __call__(self, environ, start_response):
         # Este método se llama en cada petición HTTP
@@ -57,34 +58,18 @@ class ControlHttpApp(object):
                 command = command_data.get('command')
 
                 # Ponemos el comando en la cola de control del monitor
-                # Usamos self.monitor para acceder a la instancia
                 self.monitor.control_queue.put(command_data)
                 self.logger.info("Comando de control recibido por HTTP: %s", command_data)
 
                 if command == 'continue' and self.monitor.paused and self.monitor._resume_event is not None:
-
-                     self.logger.debug("HTTP Handler: Intentando enviar signal. Tipo de _resume_event: %s, Valor: %s (ID: %s)",
+                    self.logger.debug("HTTP Handler: Intentando enviar signal. Tipo de _resume_event: %s, Valor: %s (ID: %s)",
                                        type(self.monitor._resume_event),
                                        self.monitor._resume_event,
                                        id(self.monitor._resume_event))
 
-                     # \u00A1A\u00F1adir estas l\u00EDneas de prueba!
-                     try:
-                         self.logger.debug("HTTP Handler: --- Prueba diagn\u00F3stica ---")
-                         temp_event = hub.Event()
-                         self.logger.debug("HTTP Handler: Evento temporal creado: %s (ID: %s)", type(temp_event), id(temp_event))
-                         temp_event.set() # \u00A1Intentar enviar en este nuevo evento!
-                         self.logger.debug("HTTP Handler: temp_event.set() funcion\u00F3.")
-                     except AttributeError as e:
-                         self.logger.error("HTTP Handler: ERROR: temp_event.set() fall\u00F3 tambi\u00E9n: %s", e)
-                         # Si este error aparece aqu\u00ED, el problema es con la librer\u00EDa eventlet
-
-                     self.logger.debug("HTTP Handler: --- Fin Prueba diagn\u00F3stica ---")
-
-
-                     self.logger.debug("HTTP Handler: Enviando signal a _resume_event (ID: %s)", id(self.monitor._resume_event))
-                     self.monitor._resume_event.set() # <--- La l\u00EDnea original que falla
-
+                    # Si este error aparece aquí, el problema es con la librería eventlet
+                    self.logger.debug("HTTP Handler: Enviando signal a _resume_event (ID: %s)", id(self.monitor._resume_event))
+                    self.monitor._resume_event.set() 
 
                 status = '200 OK'
                 headers = [('Content-Type', 'application/json')]
@@ -104,13 +89,11 @@ class ControlHttpApp(object):
                 request_body = environ['wsgi.input'].read(request_body_size)
                 notification_data = json.loads(request_body)
 
-                # Esperamos datos como: {'src_dpid': 15, 'dst_dpid': 14, 'param_name': 'delay', 'value': 50}
                 src_dpid = notification_data.get('src_dpid')
                 dst_dpid = notification_data.get('dst_dpid')
                 param_name = notification_data.get('param_name')
                 value = notification_data.get('value')
 
-                # Convertir DPIDs a int si vienen como otra cosa (aunque Flask los envía como int, pero mejor ser robusto)
                 try:
                     src_dpid = int(src_dpid)
                     dst_dpid = int(dst_dpid)
@@ -121,119 +104,104 @@ class ControlHttpApp(object):
                     start_response(status, headers)
                     return [json.dumps({"status": "error", "message": "Invalid source or destination DPID"}).encode('utf-8')]
 
-
                 self.logger.info("Notificación de cambio de parámetro recibida: Enlace %d-%d, %s = %s",
                                  src_dpid, dst_dpid, param_name, value)
 
-                # --- A1Actualizar self.monitor.link_metrics directamente ---
-                dst_port = None
-                src_port = None
-                # Los enlaces en self.monitor.topology['links'] están como (src_dpid, dst_dpid, {'port': src_port})
-                # Iterar sobre una copia si el hilo principal podría  modificarlo
+                actual_src_port = None
+                actual_dst_port = None
+
+                # Primero, encuentra los puertos correctos para el enlace (src_dpid, dst_dpid) y (dst_dpid, src_dpid)
                 for link in list(self.monitor.topology.get('links', [])):
                     if link[0] == src_dpid and link[1] == dst_dpid:
-                        src_port = link[2].get('port')
-                        break
+                        actual_src_port = link[2].get('port')
+                    if link[0] == dst_dpid and link[1] == src_dpid:
+                        actual_dst_port = link[2].get('port')
+                    if actual_src_port is not None and actual_dst_port is not None:
+                        break # Ya encontramos ambos puertos
 
-                if src_port is not None:
-                    # Asegurarse de que la entrada para este DPID y puerto existe en link_metrics
-                    if src_dpid not in self.monitor.link_metrics:
-                        self.monitor.link_metrics[src_dpid] = {}
-                    if src_port not in self.monitor.link_metrics[src_dpid]:
-                         # Inicializar las métricas para este puerto si aún no existen
-                         self.monitor.link_metrics[src_dpid][src_port] = {'load': 0.0, 'packet_loss': 0.0, 'delay': 0.0}
+                if actual_src_port is None or actual_dst_port is None:
+                    self.logger.warning("No se encontraron los puertos completos para el enlace %s-%s en la topología. No se actualizarán métricas.", src_dpid, dst_dpid)
+                    status = '404 Not Found' # O 200 OK pero con un mensaje de advertencia específico.
+                    headers = [('Content-Type', 'application/json')]
+                    start_response(status, headers)
+                    return [json.dumps({"status": "error", "message": "Link ports not found in topology"}).encode('utf-8')]
+
+                # Ahora que tenemos ambos puertos, procedemos con la actualización
+
+                # Asegurarse de que la entrada para este DPID y puerto existe en link_metrics para src_dpid
+                if src_dpid not in self.monitor.link_metrics:
+                    self.monitor.link_metrics[src_dpid] = {}
+                if actual_src_port not in self.monitor.link_metrics[src_dpid]:
+                    self.monitor.link_metrics[src_dpid][actual_src_port] = {'load': 0.0, 'packet_loss': 0.0, 'delay': 0.0}
+
+                # Asegurarse de que la entrada para este DPID y puerto existe en link_metrics para dst_dpid
+                if dst_dpid not in self.monitor.link_metrics:
+                    self.monitor.link_metrics[dst_dpid] = {}
+                if actual_dst_port not in self.monitor.link_metrics[dst_dpid]:
+                    self.monitor.link_metrics[dst_dpid][actual_dst_port] = {'load': 0.0, 'packet_loss': 0.0, 'delay': 0.0}
+
+                # Actualizar el valor específico de la métrica
+                if param_name == 'delay':
+                    try:
+                        delay_seconds = float(value) / 1000.0
+                        # Actualizar ambos sentidos y marcarlos como manual
+                        self.monitor.link_metrics[src_dpid][actual_src_port]['delay'] = delay_seconds
+                        self.monitor.link_metrics[dst_dpid][actual_dst_port]['delay'] = delay_seconds
+                        self.monitor.manual_metrics_set.add((src_dpid, actual_src_port, 'delay'))
+                        self.monitor.manual_metrics_set.add((dst_dpid, actual_dst_port, 'delay'))
+                        self.logger.info("Métrica de delay actualizada para enlace %d-%d (Puerto %d) y %d-%d (Puerto %d) a %.3fms",
+                                         src_dpid, dst_dpid, actual_src_port, dst_dpid, src_dpid, actual_dst_port, delay_seconds * 1000)
+                    except (ValueError, TypeError):
+                         self.logger.error("Valor inválido para delay: %s", value)
+
+                elif param_name == 'loss':
+                     try:
+                         packet_loss_fraction = float(value) / 100.0
+                         packet_loss_fraction = max(0.0, min(1.0, packet_loss_fraction))
+                         # Actualizar ambos sentidos y marcarlos como manual
+                         self.monitor.link_metrics[src_dpid][actual_src_port]['packet_loss'] = packet_loss_fraction
+                         self.monitor.link_metrics[dst_dpid][actual_dst_port]['packet_loss'] = packet_loss_fraction
+                         self.monitor.manual_metrics_set.add((src_dpid, actual_src_port, 'packet_loss'))
+                         self.monitor.manual_metrics_set.add((dst_dpid, actual_dst_port, 'packet_loss'))
+                         self.logger.info("Métrica de loss actualizada para enlace %d-%d (Puerto %d) y %d-%d (Puerto %d) a %.2f%%",
+                                         src_dpid, dst_dpid, actual_src_port, dst_dpid, src_dpid, actual_dst_port, packet_loss_fraction * 100)
+                     except (ValueError, TypeError):
+                         self.logger.error("Valor inválido para loss: %s", value)
+
+                elif param_name == 'bw':
+                    self.logger.warning("Notificación BW recibida para enlace %d-%d. Considerar guardar BW configurado por separado.", src_dpid, dst_dpid)
+                    # Si el BW afecta el costo, también deberías marcarlo como manual para ambos lados
+                    # self.monitor.manual_metrics_set.add((src_dpid, actual_src_port, 'bw'))
+                    # self.monitor.manual_metrics_set.add((dst_dpid, actual_dst_port, 'bw'))
 
 
-                    # --- Actualizar el valor específico de la métrica ---
+                # Mostrar en consola si se modifica el enlace 14<->15 (o cualquier otro enlace específico)
+                dpid1, dpid2 = sorted((src_dpid, dst_dpid))
+                if (dpid1 == 14 and dpid2 == 15) or (dpid1 == 1 and dpid2 == 20): # ¡Añadido tu caso 1-20!
+                    self.logger.info("--- METRICAS ACTUALIZADAS (por notificación) para enlace %d-%d/%d-%d ---", dpid1, dpid2, dpid2, dpid1)
 
+                    # Obtener las métricas actualizadas para ambos lados
+                    metrics_src_port = self.monitor.link_metrics.get(src_dpid, {}).get(actual_src_port, {})
+                    metrics_dst_port = self.monitor.link_metrics.get(dst_dpid, {}).get(actual_dst_port, {})
 
-                    if param_name == 'delay':
-                        # value viene en ms, convertir a segundos
-                        try:
-                            delay_seconds = float(value) / 1000.0
-                            self.monitor.link_metrics[src_dpid][src_port]['delay'] = delay_seconds
-                            self.monitor.manual_metrics_set.add((dst_dpid, dst_port, 'delay'))
-                            self.logger.info("M\u00E9trica de delay actualizada para enlace %d-%d (Puerto %d) a %.3fms",
-                                             src_dpid, dst_dpid, src_port, delay_seconds * 1000)
-                        except (ValueError, TypeError):
-                             self.logger.error("Valor inv\u00E1lido para delay: %s", value)
-
-                    elif param_name == 'loss':
-                         # value viene en %, convertir a fracción [0, 1]
-                         try:
-                             packet_loss_fraction = float(value) / 100.0
-                             # Asegurar que está en el rango [0, 1]
-                             packet_loss_fraction = max(0.0, min(1.0, packet_loss_fraction))
-                             self.monitor.link_metrics[src_dpid][src_port]['packet_loss'] = packet_loss_fraction
-                             self.monitor.manual_metrics_set.add((dst_dpid, dst_port, 'packet_loss'))
-                             self.logger.info("M\u00E9trica de loss actualizada para enlace %d-%d (Puerto %d) a %.2f%%",
-                                             src_dpid, dst_dpid, src_port, packet_loss_fraction * 100)
-                         except (ValueError, TypeError):
-                             self.logger.error("Valor inv\u00E1lido para loss: %s", value)
-
-                    elif param_name == 'bw':
-
-                         self.logger.warning("Notificaci\u00F3n BW recibida para enlace %d-%d. Considerar guardar BW configurado por separado.", src_dpid, dst_dpid)
-
-                
-                    # Buscar en el otro extremo del enlace es simétrico
-                    for link in self.monitor.topology.get('links', []):
-                        if link[0] == dst_dpid and link[1] == src_dpid:
-                            dst_port = link[2].get('port')
-                            break
-
-                    if dst_port is not None and dst_dpid in self.monitor.link_metrics and dst_port in self.monitor.link_metrics[dst_dpid]:
-                         if param_name == 'delay':
-                              self.monitor.link_metrics[dst_dpid][dst_port]['delay'] = delay_seconds
-                              self.monitor.manual_metrics_set.add((dst_dpid, dst_port, 'delay'))
-                              self.logger.info("M\u00E9trica de delay actualizada (otro extremo) para enlace %s-%s (Puerto %d) a %.3fms",
-                                               dst_dpid, src_dpid, dst_port, delay_seconds * 1000)
-                         elif param_name == 'loss':
-                              self.monitor.link_metrics[dst_dpid][dst_port]['packet_loss'] = packet_loss_fraction
-                              self.monitor.manual_metrics_set.add((dst_dpid, dst_port, 'packet_loss'))
-                              self.logger.info("M\u00E9trica de loss actualizada (otro extremo) para enlace %s-%s (Puerto %d) a %.2f%%",
-                                               dst_dpid, src_dpid, dst_port, packet_loss_fraction * 100)
-                         # Repetir para bw si es necesario
-
+                    if metrics_src_port:
+                        self.logger.info("  Enlace %d -> %d (Puerto %d):", src_dpid, dst_dpid, actual_src_port)
+                        self.logger.info("    Delay: %.3f ms", metrics_src_port.get('delay', 0.0) * 1000)
+                        self.logger.info("    Loss: %.2f %%", metrics_src_port.get('packet_loss', 0.0) * 100)
+                        self.logger.info("    Load: %.6f", metrics_src_port.get('load', 0.0))
                     else:
-                        self.logger.warning("No se encontr\u00F3 el puerto destino (%s) o su entrada en link_metrics para actualizar m\u00E9tricas sim\u00E9tricas.", dst_port)
+                        self.logger.info("  Métricas para %d-eth%d no disponibles en link_metrics.", src_dpid, actual_src_port)
 
-
-                else:
-                    self.logger.warning("No se encontr\u00F3 la entrada para DPID %s, Puerto %s en self.monitor.link_metrics para actualizar.", src_dpid, src_port)
-
-                
-                
-                dpid1, dpid2 = sorted((src_dpid, dst_dpid)) # Obtener los DPIDs ordenados
-                if (dpid1 == 14 and dpid2 == 15):
-                    self.logger.info("--- METRICAS ACTUALIZADAS (por notificaci\u00F3n) para enlace 14-15/15-14 ---")
-
-                    # Obtener las m\u00E9tricas actualizadas para los puertos relevantes
-                    # Sabemos que 15-eth2 <=> 14-eth3
-                    metrics_15_eth2 = self.monitor.link_metrics.get(15, {}).get(2, {})
-                    metrics_14_eth3 = self.monitor.link_metrics.get(14, {}).get(3, {})
-
-                    if metrics_15_eth2:
-                        self.logger.info("  Enlace 15 -> 14 (Puerto 15-eth2):")
-                        self.logger.info("    Delay: %.3f ms", metrics_15_eth2.get('delay', 0.0) * 1000)
-                        self.logger.info("    Loss: %.2f %%", metrics_15_eth2.get('packet_loss', 0.0) * 100)
-                        self.logger.info("    Load: %.6f", metrics_15_eth2.get('load', 0.0))
+                    if metrics_dst_port:
+                         self.logger.info("  Enlace %d -> %d (Puerto %d):", dst_dpid, src_dpid, actual_dst_port)
+                         self.logger.info("    Delay: %.3f ms", metrics_dst_port.get('delay', 0.0) * 1000)
+                         self.logger.info("    Loss: %.2f %%", metrics_dst_port.get('packet_loss', 0.0) * 100)
+                         self.logger.info("    Load: %.6f", metrics_dst_port.get('load', 0.0))
                     else:
-                        self.logger.info("  M\u00E9tricas para 15-eth2 no disponibles en link_metrics.")
-
-
-                    if metrics_14_eth3:
-                         self.logger.info("  Enlace 14 -> 15 (Puerto 14-eth3):")
-                         self.logger.info("    Delay: %.3f ms", metrics_14_eth3.get('delay', 0.0) * 1000)
-                         self.logger.info("    Loss: %.2f %%", metrics_14_eth3.get('packet_loss', 0.0) * 100)
-                         self.logger.info("    Load: %.6f", metrics_14_eth3.get('load', 0.0))
-                    else:
-                         self.logger.info("  M\u00E9tricas para 14-eth3 no disponibles en link_metrics.")
+                         self.logger.info("  Métricas para %d-eth%d no disponibles en link_metrics.", dst_dpid, actual_dst_port)
 
                     self.logger.info("--------------------------------------------------------")
-                # --- Fin del bloque de logueo espec\u00EDfico ---
 
-                
                 status = '200 OK'
                 headers = [('Content-Type', 'application/json')]
                 start_response(status, headers)
@@ -246,12 +214,10 @@ class ControlHttpApp(object):
                 start_response(status, headers)
                 return [json.dumps({"status": "error", "message": str(e)}).encode('utf-8')]
         else:
-            # Otros m\u00E9todos o rutas no soportadas
             status = '404 Not Found'
             headers = [('Content-Type', 'application/json')]
             start_response(status, headers)
             return [json.dumps({"status": "error", "message": "Endpoint not found"}).encode('utf-8')]
-
 
 
 class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
@@ -309,7 +275,6 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         self.experiment_snapshot = 189
         self.experiment_runs     = 1
 
-        # --- \u00A1Nuevo! Diccionario para rastrear m\u00E9tricas establecidas manualmente ---
         # Clave: (dpid, port_no, param_name) , Valor: True
         self.manual_metrics_set = set()
 
@@ -337,7 +302,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                     'packet_loss': self.link_metrics.get(dpid, {}).get(port_no, {}).get('packet_loss', 0.0),
                     'delay': self.link_metrics.get(dpid, {}).get(port_no, {}).get('delay', 0.0)
                 }
-        print("Snapshot generado:", snapshot) 
+        print("Snapshot generado:", snapshot)
         return snapshot
 
     def get_topology_data(self):
@@ -364,20 +329,18 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         # Construir la matriz de costos
         cost_matrix, load_matrix = llbaco_aux.build_cost_load_matrix(snapshot, nodes, topology_links, delta)
 
-
         self.logger.info("Matriz de costos:")
         for row in cost_matrix:
             self.logger.info(row)
-        
+
         self.logger.info("Matriz de cargas:")
         for row in load_matrix:
             self.logger.info(row)
 
         # Ejecutar el algoritmo LLBACO
         best_path, best_cost = llbaco_aux.run_aco_llbaco(
-        nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100, 
+        nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100,
         alpha=1.0, beta=1.0, gamma=1.0, rho=0.50,Q=1.0, high_cost=1000, q0=0.5, phi=0.1)
-
 
         self.logger.info("Ruta óptima encontrada: %s con costo %.6f", best_path, best_cost)
         return best_path, best_cost
@@ -391,7 +354,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             "switches": self.topology["switches"],
             "links": [],
             "best_path": best_path.tolist() if isinstance(best_path, np.ndarray) else (best_path if best_path is not None else []),
-            "best_cost": best_cost if best_cost is not None else float('inf'), 
+            "best_cost": best_cost if best_cost is not None else float('inf'),
             "counter": counter if counter is not None else 0
         }
         for (src_dpid, dst_dpid, link_info) in self.topology["links"]:
@@ -432,43 +395,39 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                               'None' if self._resume_event is None else 'Existente',
                               id(self._resume_event) if self._resume_event else 'N/A')
 
-            # \u00A1Solo enviar si el evento existe!
+            # Solo enviar si el evento existe
             if self._resume_event is not None:
                  self.logger.debug("CONTINUE: Llamado _resume_event.set() (ID: %s)", id(self._resume_event))
-                 self._resume_event.set() # Despierta el hilo que est\u00E1 esperando
+                 self._resume_event.set() # Despierta el hilo que está esperando
             else:
                  self.logger.debug("CONTINUE: _resume_event es None, no se llama set(). El monitor no estaba en wait().")
 
-
         elif command == 'skip':
             steps = command_data.get('steps', 1)
-            self.logger.info("Comando: SALTAR %d instant\u00E1nea(s).", steps)
+            self.logger.info("Comando: SALTAR %d instantánea(s).", steps)
             self._skip_steps += steps
             self.logger.debug("SKIP: _resume_event es %s (ID: %s)",
                               'None' if self._resume_event is None else 'Existente',
                               id(self._resume_event) if self._resume_event else 'N/A')
 
-        elif command == 'set_endpoints': # \u00A1Nuevo comando!
+        elif command == 'set_endpoints': # Nuevo comando
             src_dpid = command_data.get('src')
             dst_dpid = command_data.get('dst')
             if src_dpid is not None and dst_dpid is not None:
                 self.src_node_dpid = src_dpid
                 self.dst_node_dpid = dst_dpid
                 self.logger.info("Puntos finales actualizados: Origen=%s, Destino=%s", self.src_node_dpid, self.dst_node_dpid)
-                # Opcional: Podr\u00EDas querer forzar una ejecuci\u00F3n del algoritmo inmediatamente
-                # despu\u00E9s de cambiar los puntos finales. Esto requerir\u00EDa se\u00F1alizar el hilo _monitor
+                # Opcional: Podrías querer forzar una ejecución del algoritmo inmediatamente
+                # después de cambiar los puntos finales. Esto requeriría señalar el hilo _monitor
                 # para que se ejecute sin esperar el monitor_interval.
-                # Por ejemplo, podr\u00EDas poner un evento en el hilo _monitor
+                # Por ejemplo, podrías poner un evento en el hilo _monitor
                 # if self._execute_now_event is not None:
                 #     self._execute_now_event.send()
             else:
-                self.logger.warning("Comando 'set_endpoints' recibido sin src o dst v\u00E1lidos.")
+                self.logger.warning("Comando 'set_endpoints' recibido sin src o dst válidos.")
 
         else:
             self.logger.warning("Comando de control desconocido recibido: %s", command)
-
-
-
 
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
@@ -493,7 +452,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                                 'packet_loss': 0.0,
                                 'delay': 0.0
                             }
-        
+
         elif ev.state == DEAD_DISPATCHER:
             if datapath.id in self.datapaths:
                 self.logger.info("Eliminando datapath: %016x", datapath.id)
@@ -518,38 +477,34 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             if self.paused:
                 self.logger.debug("Monitoreo PAUSADO. Esperando comando 'continue'...")
 
-                # \u00A1Crear un nuevo evento cada vez que se pausa si a\u00FAn no hay uno!
-                # El manejador HTTP lo necesitar\u00E1 para hacer .set()
+                # Crear un nuevo evento cada vez que se pausa si aún no hay uno.
+                # El manejador HTTP lo necesitará para hacer .set()
                 if self._resume_event is None:
                     self.logger.debug("MONITOR: Creando nuevo _resume_event para esta pausa.")
                     self._resume_event = hub.Event()
                     self.logger.debug("MONITOR: Nuevo _resume_event creado (ID: %s)", id(self._resume_event))
-
 
                 # Log de estado del evento de resume justo antes de esperar
                 self.logger.debug("MONITOR: _resume_event es %s antes de wait() (ID: %s)",
                                   'None' if self._resume_event is None else 'Existente',
                                   id(self._resume_event) if self._resume_event else 'N/A')
 
+                self._resume_event.wait() # El hilo duerme aquí
 
-                self._resume_event.wait() # El hilo duerme aqu\u00ED
-
-                # \u00A1Despu\u00E9s de wait() (cuando se reanuda), limpiar el evento!
-                self.logger.debug("MONITOR: _resume_event es Existente despu\u00E9s de wait() (ID: %s)",
-                                  id(self._resume_event) if self._resume_event else 'N/A') # <--- Log corregido
+                # Después de wait() (cuando se reanuda), log el estado del evento
+                self.logger.debug("MONITOR: _resume_event es Existente después de wait() (ID: %s)",
+                                  id(self._resume_event) if self._resume_event else 'N/A')
 
                 self.logger.debug("Monitoreo reanudado.")
 
-                # Limpiar el evento despu\u00E9s de que se us\u00F3 para reanudar
-                self._resume_event = None # <--- Limpiar el evento
-
+                # Limpiar el evento después de que se usó para reanudar
+                self._resume_event = None
 
                 continue
 
-
             # 3. Generar snapshot y ejecutar LLBACO (Solo si no estamos saltando)
             if self._skip_steps > 0:
-                self.logger.debug("Saltando instant\u00E1nea (%d restantes).", self._skip_steps)
+                self.logger.debug("Saltando instantánea (%d restantes).", self._skip_steps)
                 self._skip_steps -= 1
             else:
                 # Para cada datapath, solicita estadísticas y un echo para delay.
@@ -568,44 +523,47 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
                         self.logger.info("  Port %d: %s", port, metrics)
 
                 # Ejecutar LLBACO con el snapshot generado
-                if snapshot: 
-                    self.snapshot_counter += 1 
+                if snapshot:
+                    self.snapshot_counter += 1
                     if self.snapshot_counter == self.experiment_snapshot:
                         self.logger.info("=== Experimento: ejecutando %d runs en snapshot %d ===",
                                         self.experiment_runs, self.snapshot_counter)
                         costs = []
                         paths = []
+                        total_aco_time = 0 # Inicializar para sumar los tiempos
                         for i in range(self.experiment_runs):
                             start_time_aco = time.time()
                             path_i, cost_i = self.run_llbaco(snapshot)
                             end_time_aco = time.time()
-                            time_aco = end_time_aco - start_time_aco
+                            time_aco_run = end_time_aco - start_time_aco
+                            total_aco_time += time_aco_run # Sumar el tiempo de esta ejecución
 
                             costs.append(cost_i)
                             paths.append(" → ".join(map(str, path_i)))
                             self.logger.debug("Run %2d/%2d: cost=%.6f", i+1, self.experiment_runs, cost_i)
 
                         mean_cost = float(np.mean(costs))
-                        std_cost  = float(np.std(costs, ddof=1))
+                        std_cost  = float(np.std(costs, ddof=1)) # ddof=1 para desviación estándar muestral
 
                         # Guardar a archivo CSV
                         df = pd.DataFrame({
                             'snapshot': [self.snapshot_counter] * self.experiment_runs,
                             'run': list(range(1, self.experiment_runs + 1)),
                             'cost': costs,
-                            'path': paths
+                            'path': paths,
+                            'time_s': [total_aco_time / self.experiment_runs] * self.experiment_runs # Tiempo promedio por corrida
                         })
-                        df['mean'] = mean_cost
-                        df['std'] = std_cost
-                        df['time']= time_aco
+                        df['mean_cost'] = mean_cost
+                        df['std_cost'] = std_cost
+                        df['total_aco_time_s'] = total_aco_time # Tiempo total para todas las corridas en el snapshot
 
                         filename = f"conf_{self.snapshot_counter}.csv"
                         df.to_csv(filename, index=False)
                         self.logger.info("Resultados del experimento guardados en: %s", filename)
-                    else:                     
-                        best_path, best_cost = self.run_llbaco(snapshot)  
+                    else:
+                        best_path, best_cost = self.run_llbaco(snapshot)
 
-                        dpids = self.topology['switches']      
+                        dpids = self.topology['switches']
                         best_dpid_path = best_path
                         data_for_flask = self.build_data_for_flask(snapshot, best_dpid_path, best_cost, self.snapshot_counter)
 
@@ -652,15 +610,13 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             # Actualiza el delay para cada puerto del switch
             if dpid in self.link_metrics:
                 for port in list(self.link_metrics[dpid].keys()): # Iterar sobre una copia de las claves
-                    # --- \u00A1Nuevo! Verificar si el delay de este puerto fue establecido manualmente ---
+                    # Verificar si el delay de este puerto fue establecido manualmente
                     if (dpid, port, 'delay') in self.manual_metrics_set:
-                        self.logger.debug("MONITOR: Saltando actualizaci\u00F3n autom\u00E1tica de delay para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
-                        continue # Saltar la actualizaci\u00F3n autom\u00E1tica para este puerto/m\u00E9trica
+                        self.logger.debug("MONITOR: Saltando actualización automática de delay para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
+                        continue # Saltar la actualización automática para este puerto/métrica
 
-                    # --- Fin de la verificaci\u00F3n manual ---
-
-                    self.link_metrics[dpid][port]['delay'] = delay # \u00A1Actualizaci\u00F3n autom\u00E1tica solo si no es manual!
-                    self.logger.debug("MONITOR: Delay actualizado autom\u00E1ticamente para %d-%d (Puerto %d): %.3f ms", dpid, port, port, delay * 1000)
+                    self.link_metrics[dpid][port]['delay'] = delay # Actualización automática
+                    self.logger.debug("MONITOR: Delay actualizado automáticamente para %d-%d (Puerto %d): %.3f ms", dpid, port, port, delay * 1000)
 
         self.logger.info("Delay promedio actualizado para dpid %s (basado en eco): %.3f ms", dpid, delay * 1000)
         del self.echo_timestamps[dpid]
@@ -675,7 +631,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         if dpid not in self.last_stats:
             self.last_stats[dpid] = {}
 
-        self.logger.info("=== Estad\u00EDsticas del switch %016x ===", dpid)
+        self.logger.info("=== Estadísticas del switch %016x ===", dpid)
         self.logger.info("Port     Load       Delay (ms)  Packet Loss (%)")
         self.logger.info("------   --------   ----------  --------------")
 
@@ -699,24 +655,23 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             else:
                 load = 0.0
 
-            # packet_loss se calcula a partir de las estad\u00EDsticas recibidas (rx_errors, rx_packets)
+            # packet_loss se calcula a partir de las estadísticas recibidas (rx_errors, rx_packets)
             total_pkts = stat.rx_packets + stat.rx_errors
             calculated_packet_loss = (stat.rx_errors / float(total_pkts)) if total_pkts > 0 else 0.0
 
-            # --- Actualizar self.link_metrics respetando m\u00E9tricas manuales ---
+            # Actualizar self.link_metrics respetando métricas manuales
 
             # Actualizar Load (asumimos que Load siempre se mide)
             self.link_metrics[dpid][port]['load'] = load
 
-            # Actualizar Packet Loss solo si no est\u00E1 marcado como manual
+            # Actualizar Packet Loss solo si no está marcado como manual
             if (dpid, port, 'packet_loss') in self.manual_metrics_set:
-                self.logger.debug("MONITOR: Saltando actualizaci\u00F3n autom\u00E1tica de packet_loss para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
+                self.logger.debug("MONITOR: Saltando actualización automática de packet_loss para %d-%d (Puerto %d) - establecido manualmente.", dpid, port, port)
             else:
                  self.link_metrics[dpid][port]['packet_loss'] = calculated_packet_loss
-                 self.logger.debug("MONITOR: Packet_loss actualizado autom\u00E1ticamente para %d-%d (Puerto %d): %.6f", dpid, port, port, calculated_packet_loss)
+                 self.logger.debug("MONITOR: Packet_loss actualizado automáticamente para %d-%d (Puerto %d): %.6f", dpid, port, port, calculated_packet_loss)
 
-
-            # --- Imprimir m\u00E9tricas y actualizar m\u00E1ximos usando los valores FINALES de self.link_metrics ---
+            # Imprimir métricas y actualizar máximos usando los valores FINALES de self.link_metrics
             final_load = self.link_metrics.get(dpid, {}).get(port, {}).get('load', 0.0)
             final_packet_loss = self.link_metrics.get(dpid, {}).get(port, {}).get('packet_loss', 0.0)
             final_delay = self.link_metrics.get(dpid, {}).get(port, {}).get('delay', 0.0) # Obtener el valor actual, ya sea manual o automático.
@@ -730,9 +685,8 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             if final_packet_loss > self.max_packet_loss:
                  self.max_packet_loss = final_packet_loss
 
-            # Actualizar los \u00FAltimos datos de este puerto
+            # Actualizar los últimos datos de este puerto
             self.last_stats[dpid][port] = stat
-
 if __name__ == '__main__':
     from ryu.cmd import manager
     manager.main()
