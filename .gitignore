@@ -1,2 +1,6 @@
 __pycache__/
 escenario/
+.gitignore
+configuraciones/
+imagenes/
+comparacion_alg/
