@@ -23,7 +23,7 @@ from ryu.lib import hub
 from ryu.topology.api import get_switch, get_link
 from ryu.topology import api as topo_api
 import llbaco
-import llbaco_aux
+import llbacs
 import numpy as np
 import requests
 import json 
@@ -327,7 +327,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
         delta = 0.5  # Ajusta según lo que prefieras
 
         # Construir la matriz de costos
-        cost_matrix, load_matrix = llbaco_aux.build_cost_load_matrix(snapshot, nodes, topology_links, delta)
+        cost_matrix, load_matrix = llbacs.build_cost_load_matrix(snapshot, nodes, topology_links, delta)
 
         self.logger.info("Matriz de costos:")
         for row in cost_matrix:
@@ -338,7 +338,7 @@ class ExtendedMonitor(simple_switch_13.SimpleSwitch13):
             self.logger.info(row)
 
         # Ejecutar el algoritmo LLBACO
-        best_path, best_cost = llbaco_aux.run_aco_llbaco(
+        best_path, best_cost = llbacs.run_aco_llbaco(
         nodes, cost_matrix,load_matrix, self.src_node_dpid, self.dst_node_dpid, iterations=200, colony_size=100,
         alpha=1.0, beta=1.0, gamma=1.0, rho=0.50,Q=1.0, high_cost=1000, q0=0.5, phi=0.1)
 
