@@ -11,7 +11,7 @@ import random
     #return w_load * (1/(load + 1e-6)) + w_delay * delay + w_packet_loss * packet_loss
 ####
 
-def calculate_link_cost(delay, packet_loss, delta=0.5):
+def calculate_link_cost(delay, packet_loss, delta=1.0):
     """
     Calcula el costo de un enlace normalizando cada métrica.
 
@@ -28,7 +28,7 @@ def calculate_link_cost(delay, packet_loss, delta=0.5):
     return delta * delay + (1 - delta) * packet_loss
 
 
-def build_cost_load_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost=1000):
+def build_cost_load_matrix(snapshot, nodes, topology_links, delta=1.0, high_cost=1000):
     """
     Construyes las matrices de coste y carga a partir de las métricas obtenidas.
     """
@@ -88,7 +88,7 @@ def build_cost_load_matrix(snapshot, nodes, topology_links, delta=0.5, high_cost
 def build_cost_load_matrix2(
     nodes: list,             # Lista de IDs de switches (DPIDs) como en tu JSON "switches"
     links_data_json: list,   # La lista de diccionarios de enlaces de tu JSON "links"
-    delta: float = 0.5,      # Parámetro delta para la función de costo
+    delta: float = 1.0,      # Parámetro delta para la función de costo
     high_cost: float = 1e9   # Un valor alto para representar enlaces no existentes o muy costosos
 ):
     """
@@ -494,7 +494,7 @@ if __name__ == "__main__":
 
     # Construir matrices de costo y carga
     cost_matrix, load_matrix = build_cost_load_matrix(
-        snapshot_data, nodes_list, topology_links_list, delta=0.5, high_cost=1000
+        snapshot_data, nodes_list, topology_links_list, delta=1.0, high_cost=1000
     )
 
     print("\n--- Matrices Construidas ---")

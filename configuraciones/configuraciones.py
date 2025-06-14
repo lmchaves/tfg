@@ -7,7 +7,7 @@ import time         # ¡Asegúrate de importar time!
 import llbaco_aux 
 
 def main():
-    snapshot_file = 'network_snapshot_20250530_094552.json' # Tu archivo JSON
+    snapshot_file = 'network_snapshot_20250612_105724.json' # Tu archivo JSON
 
     try:
         with open(snapshot_file, 'r') as f:
@@ -45,11 +45,12 @@ def main():
         'alpha': 1.0,
         'beta': 1.0, 
         'gamma': 1.0,
-        'rho': 0.05,
+        'rho': 0.5,
         'Q': 1.0,
         'high_cost': 1000,
         'q0': 0.5,
-        'phi': 0.95
+        'phi': 0.9,
+        'tau0' : 1.0
     }
 
     # --- Construir las matrices de costo y carga (esto se hace solo una vez) ---
