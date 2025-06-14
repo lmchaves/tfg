@@ -151,7 +151,7 @@ if dataframes_to_combine:
     plt.tight_layout()
     plt.show()
 
-    # GRÁFICA ADICIONAL (Opcional): Retraso Promedio de la RED (Estado Inicial)
+    # GRÁFICA 6: Retraso Promedio de la RED (Estado Inicial)
     plt.figure(figsize=(9, 6))
     summary_network_delay.plot(
         kind='bar',
@@ -165,7 +165,7 @@ if dataframes_to_combine:
     plt.tight_layout()
     plt.show()
 
-    # GRÁFICA 6: Carga Promedio de la RUTA (Impacto del Algoritmo) - SOLO LLBACS y LLBACO
+    # GRÁFICA 7: Carga Promedio de la RUTA (Impacto del Algoritmo) - SOLO LLBACS y LLBACO
     plt.figure(figsize=(9, 6))
     # Aquí es donde usamos df_filtered_aco
     df_filtered_aco.groupby('algorithm')['route_load'].mean().plot(

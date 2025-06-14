@@ -4,15 +4,11 @@ import seaborn as sns
 import os
 import numpy as np
 
-# --- Configuración ---
 csv_directory = './configuraciones'
-
 csv_filename_prefix = 'conf_'
 csv_filename_suffix = '.csv'
-
 num_configurations = 14
 
-# --- Análisis ---
 summary_data = []
 
 if not os.path.isdir(csv_directory):
@@ -56,10 +52,8 @@ else:
 summary_df = pd.DataFrame(summary_data)
 
 if not summary_df.empty:
-    # Ordenar por coste medio para la primera visualización (opcional)
     summary_df_sorted_by_cost = summary_df.sort_values('Mean Cost').reset_index(drop=True)
 
-    # --- Mostrar Tabla de Resultados ---
     print("\n--- Tabla Resumen de Resultados por Configuración ---")
     try:
         print(summary_df_sorted_by_cost.to_markdown(index=False)) 
@@ -67,10 +61,8 @@ if not summary_df.empty:
         print("Por favor, instala la biblioteca 'tabulate' (pip install tabulate) para ver la tabla en formato Markdown.")
         print(summary_df_sorted_by_cost.to_string(index=False)) 
 
-    # --- Generar Gráficos ---
     sns.set_theme(style="whitegrid")
 
-    # Gráfico de Barras para el coste Medio (CON BARRAS DE ERROR) - Ordenado por Mean Cost
     plt.figure(figsize=(10, 6))
     ax_mean_cost = summary_df_sorted_by_cost.set_index('Configuration')['Mean Cost'].plot(
         kind='bar',
@@ -90,14 +82,12 @@ if not summary_df.empty:
             plt.bar_label(container, fmt='%.4f')
     plt.show()
 
-    # Gráfico de Barras para la Desviación Típica del coste - ORDENADO ASCENDENTEMENTE POR STD DEV COST
     plt.figure(figsize=(10, 6))
-    # Ordenar el DataFrame específicamente para esta gráfica
     summary_df_sorted_by_std = summary_df.sort_values('Std Dev Cost').reset_index(drop=True)
     barplot_std = sns.barplot(
         x='Configuration', 
         y='Std Dev Cost', 
-        data=summary_df_sorted_by_std, # Usar el DataFrame ordenado
+        data=summary_df_sorted_by_std, 
         palette='viridis'
     )
     plt.title('Desviación Típica del Coste por Configuración de LLBACO')
@@ -109,20 +99,14 @@ if not summary_df.empty:
         plt.bar_label(container, fmt='%.4f')
     plt.show()
 
-    # NUEVO GRÁFICO: Gráfico de Barras para el Tiempo Medio de Ejecución - ORDENADO ASCENDENTEMENTE POR MEAN TIME
     plt.figure(figsize=(10, 6))
-
-    # 1. Crear el DataFrame ordenado por 'Mean Time' (esto incluye todas las columnas, como 'Configuration')
     summary_df_sorted_by_time = summary_df.sort_values('Mean Time').reset_index(drop=True)
-
-    # 2. Ahora, y SOLO ahora, dividir la columna 'Mean Time' por 30.0
-    # Esto asegura que solo la columna numérica se vea afectada, evitando el TypeError.
     summary_df_sorted_by_time['Mean Time'] = summary_df_sorted_by_time['Mean Time'] / 30.0
 
     barplot_time = sns.barplot(
         x='Configuration', 
         y='Mean Time', 
-        data=summary_df_sorted_by_time, # Usar el DataFrame ya ordenado y con la división aplicada
+        data=summary_df_sorted_by_time, 
         palette='magma'
     )
     plt.title('Tiempo Medio de Ejecución por Configuración de LLBACO')
