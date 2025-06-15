@@ -72,3 +72,7 @@ sudo python3 topologias/ptopo6.py
 La ejecución correcta se puede ver en la siguiente imagen:
 
 > ![Ejecución de la topología](imagenes/topo_manu.png)
+
+## Licencia
+
+Este proyecto está licenciado bajo la Licencia MIT - consulta el archivo [LICENSE](./LICENSE) para más detalles.
