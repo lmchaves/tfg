@@ -1,3 +1,9 @@
+#  Optimización del despliegue de SDNs  por medio de Algoritmos Bioinspirados
+
+Se recomienda leer la  [Memoria](./TFG_LMCL.pdf), para entender el contexto y funciíon de este proyecto.
+
+A continuación se describe como utilizar la herramienta web complementaria.
+
 ## Manual de usuario
 
 ### Introducción
@@ -72,3 +78,7 @@ sudo python3 topologias/ptopo6.py
 La ejecución correcta se puede ver en la siguiente imagen:
 
 > ![Ejecución de la topología](imagenes/topo_manu.png)
+
+## Licencia
+
+Este proyecto está licenciado bajo la Licencia MIT - consulta el archivo [LICENSE](./LICENSE) para más detalles.
