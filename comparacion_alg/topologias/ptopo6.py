@@ -39,7 +39,6 @@ class MininetRpcApi:
             intf1 = link.intf1 # Interfaz del primer nodo en el enlace
             intf2 = link.intf2 # Interfaz del segundo nodo en el enlace
 
-            # Determinar cu\u00E1l interfaz pertenece al src_dpid y cu\u00E1l al dst_dpid
             if int(intf1.node.dpid, 16) == src_dpid:
                 src_intf = intf1
                 dst_intf = intf2
@@ -79,7 +78,7 @@ class MininetRpcApi:
                  info(f"RPC: Ejecutando tc command en {src_node.name}: {command}")
                  output = src_node.cmd(command)
                  info(f"RPC: Output tc loss: {output.strip()}")
-                 info(f"RPC: P\u00E9rdida del enlace {src_dpid}-{dst_dpid} intentada establecer a {value}%")
+                 info(f"RPC: Pérdida del enlace {src_dpid}-{dst_dpid} intentada establecer a {value}%")
 
 
             elif param_name == "bw":
@@ -99,24 +98,17 @@ class MininetRpcApi:
 
 
             else:
-                info(f"RPC ERROR: Par\u00E1metro desconocido: {param_name}. No se ejecut\u00F3 comando tc.")
+                info(f"RPC ERROR: Parñametro desconocido: {param_name}. No se ejecut comando tc.")
                 return False
 
-            # \u00A1Si llegamos aqu\u00ED sin error, asumimos que el comando tc se intent\u00F3!
-            # El output del comando tc capturado en la variable 'output' puede contener mensajes de error si tc fall\u00F3.
-            # Podr\u00EDamos a\u00F1adir l\u00F3gica para verificar si 'output' indica un error de tc.
-            # Por ahora, si el comando se ejecuta sin excepci\u00F3n de Python, retornamos True.
-            # Una mejora ser\u00EDa parsear el output de tc.
 
-            return True # Retorna True si el comando tc se intent\u00F3 ejecutar
+            return True 
 
         except Exception as e:
-            info(f"RPC ERROR: Fallo GENERAL al intentar establecer {param_name} en enlace {src_dpid}-{dst_dpid} v\u00EDa tc command: {e}\n")
-            # Si hay una excepci\u00F3n de Python durante la ejecuci\u00F3n del comando (ej. sintaxis incorrecta, interfaz no encontrada, etc.)
+            info(f"RPC ERROR: Fallo GENERAL al intentar establecer {param_name} en enlace {src_dpid}-{dst_dpid} va tc command: {e}\n")
             return False
 
-    # Función RPC para ejecutar un comando iperf en un host
-    # ¡! El servidor iperf esté corriendo en el destino antes de llamar al cliente.
+
     def run_host_iperf(self, host_name, target_ip, bandwidth_mbps, duration_s):
         info(f"RPC: Solicitud para ejecutar iperf en {host_name} a {target_ip} con {bandwidth_mbps}Mbps por {duration_s}s\n")
         host = self.hosts.get(host_name)
@@ -177,7 +169,7 @@ def topologia_20():
 
 
 
-    info("*** Llenando mapas globales con DPIDs, enlaces y hosts despu\u00E9s de net.build()...\n")
+    info("*** Llenando mapas globales con DPIDs, enlaces y hosts después de net.build()...\n")
 
     # Llenar mapa de switches por DPID (ENTEROS)
     global_switches_by_dpid.clear() # Limpiar por si acaso
@@ -187,7 +179,7 @@ def topologia_20():
              global_switches_by_dpid[int(sw.dpid, 16)] = sw
              info(f"  Mapeado switch {sw.name} con DPID: {sw.dpid} (ENTERO: {int(sw.dpid, 16)})\n")
         else:
-             info(f"  ADVERTENCIA: Switch {sw.name} no tiene DPID asignado despu\u00E9s de build.\n")
+             info(f"  ADVERTENCIA: Switch {sw.name} no tiene DPID asignado después de build.\n")
 
     # Llenar mapa de hosts por nombre
     global_hosts_by_name.clear() # Limpiar por si acaso
@@ -204,7 +196,6 @@ def topologia_20():
             isinstance(link.intf2.node, OVSKernelSwitch)):
              sw1 = link.intf1.node
              sw2 = link.intf2.node
-             # Asegurarse de que ambos switches tienen DPID asignado (ya deber\u00EDa ser el caso aqu\u00ED)
              if sw1.dpid is not None and sw2.dpid is not None:
                   dpid1 = int(sw1.dpid, 16) # Convertir DPID a INT
                   dpid2 = int(sw2.dpid, 16) # Convertir DPID a INT
@@ -213,14 +204,10 @@ def topologia_20():
                   info(f"  Mapeado enlace entre {sw1.name} (DPID: {dpid1}) y {sw2.name} (DPID: {dpid2})\n")
              else:
                   info(f"  ADVERTENCIA: Enlace entre {sw1.name} y {sw2.name} ignorado en el mapa RPC (uno o ambos sin DPID).\n")
-        # Puedes a\u00F1adir l\u00F3gica aqu\u00ED si tambi\u00E9n quieres controlar enlaces host-switch por nombre/IP
-        # elif isinstance(link.intf1.node, Host) and isinstance(link.intf2.node, OVSKernelSwitch):
-        #     host = link.intf1.node
-        #     sw = link.intf2.node
-        #     # Mapeo host-switch si es necesario para RPC
+  
 
 
-    info("*** Mapas globales llenos despu\u00E9s de build().\n")
+    info("*** Mapas globales llenos después de build().\n")
 
 
 
@@ -251,7 +238,6 @@ def topologia_20():
     info("\n*** Contenido de global_links_by_dpid_pair:\n")
     if global_links_by_dpid_pair:
         for dpid_pair, link_obj in sorted(global_links_by_dpid_pair.items()):
-            # Intentar obtener los nombres de los switches para una salida m\u00E1s legible
             sw1_name = global_switches_by_dpid.get(dpid_pair[0])
             sw2_name = global_switches_by_dpid.get(dpid_pair[1])
 
@@ -260,7 +246,7 @@ def topologia_20():
             
             info(f"    {dpid_pair}: Enlace entre {sw1_info} y {sw2_info}\n")
     else:
-        info("    (Mapa de enlaces vac\u00EDo)\n")
+        info("    (Mapa de enlaces vacío)\n")
 
     # Imprimir el mapa de hosts por nombre
     info("\n*** Contenido de global_hosts_by_name:\n")
@@ -268,7 +254,7 @@ def topologia_20():
          for name, host_obj in sorted(global_hosts_by_name.items()):
               info(f"    {name}: {host_obj.IP()}\n")
     else:
-         info("    (Mapa de hosts vac\u00EDo)\n")
+         info("    (Mapa de hosts vacóo)\n")
 
     info("*** Fin de la impresión de mapas ***\n")
 
