@@ -6,3 +6,5 @@ Las topologías disponibles son:
 - [`ptopo6.py`](./ptopo6.py)
 
 Para añadir nuevas topologías, consulta en concreto cómo se integra `mininet_rpc_server.py` dentro de [`ptopo3_rpc.py`](./ptopo3_rpc.py).
+
+La ptopo6 es la mas completa y la recomendable para utilizar.
